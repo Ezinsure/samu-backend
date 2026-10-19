@@ -21,6 +21,14 @@ const envSchema = z.object({
   JWT_REFRESH_SECRET: z.string().min(32, "JWT_REFRESH_SECRET must be ≥ 32 characters"),
   JWT_ACCESS_TTL: z.string().default("15m"),
   JWT_REFRESH_TTL: z.string().default("7d"),
+  /** MinIO / S3 for visit photos (Phase B10+). */
+  S3_ENDPOINT: z.string().url().default("http://localhost:9000"),
+  S3_REGION: z.string().default("us-east-1"),
+  S3_ACCESS_KEY: z.string().default("samu"),
+  S3_SECRET_KEY: z.string().default("samu-secret"),
+  S3_BUCKET: z.string().default("samu-uploads"),
+  /** Max GPS distance (meters) from agent registered location before flagging. */
+  GPS_DISTANCE_METERS: z.coerce.number().int().positive().default(10),
 });
 
 const parsed = envSchema.safeParse(process.env);

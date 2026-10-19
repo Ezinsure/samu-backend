@@ -18,6 +18,7 @@ import { feedbackRouter } from "./modules/feedback/feedback.routes.js";
 import { onboardingRouter } from "./modules/onboarding/onboarding.routes.js";
 import { salesRouter } from "./modules/sales/sales.routes.js";
 import { territoriesRouter } from "./modules/territories/territories.routes.js";
+import { visitsRouter } from "./modules/visits/visits.routes.js";
 
 /**
  * Builds the Express application (no listen).
@@ -67,6 +68,7 @@ export function createApp() {
   api.use("/feedback", feedbackRouter);
   api.use("/insights", insightsRouter);
   api.use("/coap", coapRouter);
+  api.use("/visits", visitsRouter);
   app.use("/api/v1", api);
 
   app.use(notFoundHandler);

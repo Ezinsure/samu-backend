@@ -6,6 +6,7 @@ import { SEED_LEADS } from "./seed-leads-data.js";
 import { SEED_ONBOARDING } from "./seed-onboarding-data.js";
 import { SEED_FEEDBACK } from "./seed-feedback-data.js";
 import { SEED_SALES } from "./seed-sales-data.js";
+import { SEED_FRAUD_FLAGS, SEED_VISITS } from "./seed-visits-data.js";
 
 const prisma = new PrismaClient();
 
@@ -574,8 +575,104 @@ async function seedFeedback(userByEmail: Map<string, string>) {
   }
 }
 
+async function seedVisits(userByEmail: Map<string, string>) {
+  console.log("Seeding field visits…");
+
+  for (const row of SEED_VISITS) {
+    const tcUserId = userByEmail.get(row.tcEmail);
+    if (!tcUserId) {
+      throw new Error(`Missing seed TC for ${row.tcEmail}`);
+    }
+
+    await prisma.visit.upsert({
+      where: { id: row.id },
+      create: {
+        id: row.id,
+        agentId: row.agentId,
+        tcUserId,
+        purpose: row.purpose,
+        startedAt: new Date(row.startedAt),
+        endedAt: new Date(row.endedAt),
+        durationMinutes: row.durationMinutes,
+        activities: row.activities,
+        outcome: row.outcome,
+        lat: row.lat,
+        lng: row.lng,
+        accuracyMeters: row.accuracyMeters ?? null,
+        distanceFromRegisteredMeters: row.distanceFromRegisteredMeters,
+        validation: row.validation,
+        confirmationStatus: row.confirmationStatus,
+        challenges: row.challenges ?? null,
+        supportNeeded: row.supportNeeded ?? null,
+        flaggedReason: row.flaggedReason ?? null,
+      },
+      update: {
+        agentId: row.agentId,
+        tcUserId,
+        purpose: row.purpose,
+        startedAt: new Date(row.startedAt),
+        endedAt: new Date(row.endedAt),
+        durationMinutes: row.durationMinutes,
+        activities: row.activities,
+        outcome: row.outcome,
+        lat: row.lat,
+        lng: row.lng,
+        accuracyMeters: row.accuracyMeters ?? null,
+        distanceFromRegisteredMeters: row.distanceFromRegisteredMeters,
+        validation: row.validation,
+        confirmationStatus: row.confirmationStatus,
+        challenges: row.challenges ?? null,
+        supportNeeded: row.supportNeeded ?? null,
+        flaggedReason: row.flaggedReason ?? null,
+      },
+    });
+
+    await prisma.visitPhoto.deleteMany({ where: { visitId: row.id } });
+    await prisma.visitPhoto.createMany({
+      data: row.photos.map((photo) => ({
+        id: photo.id,
+        visitId: row.id,
+        storageKey: `seed/${row.id}/${photo.fileName}`,
+        fileName: photo.fileName,
+        contentType: photo.contentType,
+        sizeBytes: photo.sizeBytes,
+      })),
+    });
+
+    console.log(`  ✓ ${row.id} (${row.purpose})`);
+  }
+
+  console.log("Seeding GPS fraud flags…");
+  for (const row of SEED_FRAUD_FLAGS) {
+    await prisma.fraudFlag.upsert({
+      where: { id: row.id },
+      create: {
+        id: row.id,
+        visitId: row.visitId,
+        type: row.type,
+        severity: row.severity,
+        status: row.status,
+        detectedAt: new Date(row.detectedAt),
+        notes: row.notes ?? null,
+        resolution: row.resolution ?? null,
+        reviewHistoryJson: [],
+      },
+      update: {
+        visitId: row.visitId,
+        type: row.type,
+        severity: row.severity,
+        status: row.status,
+        detectedAt: new Date(row.detectedAt),
+        notes: row.notes ?? null,
+        resolution: row.resolution ?? null,
+      },
+    });
+    console.log(`  ✓ ${row.id} (${row.type})`);
+  }
+}
+
 /**
- * Idempotent seed: users, geo, agents, full COAP sample through feedback.
+ * Idempotent seed: users, geo, agents, COAP sample, visits.
  */
 async function main() {
   const userByEmail = await seedUsers();
@@ -586,6 +683,7 @@ async function main() {
   await seedOnboarding(userByEmail);
   await seedSales(userByEmail);
   await seedFeedback(userByEmail);
+  await seedVisits(userByEmail);
   console.log("Seed complete.");
 }
 

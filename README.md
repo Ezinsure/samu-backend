@@ -198,6 +198,21 @@ Composite read models that cut frontend fan-out (TC-scoped; MD/Admin/Ops nationa
 
 Seed COAP dates are mostly **2026-09**. For non-empty “this month” KPIs against seed data, call `?month=2026-09`.
 
+## Field visits (Phase B10)
+
+GPS-validated visits with photo evidence in MinIO. Fraud **flags** are opened on GPS mismatch; review APIs are Phase B11.
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/api/v1/visits/filters` | Agents, purposes, validations, `gpsThresholdMeters` |
+| `GET` | `/api/v1/visits` | Paginated — `agentId`, `tcUserId`, `validation`, `confirmation`, `purpose`, `search` |
+| `GET` | `/api/v1/visits/:id` | Detail + agent snapshot + fraud flags + signed photo URLs |
+| `POST` | `/api/v1/visits/photos` | Multipart field `photo` → MinIO; returns `storageKey` |
+| `POST` | `/api/v1/visits` | Create (Admin/TC); server recomputes GPS distance; optional `Idempotency-Key` |
+| `PATCH` | `/api/v1/visits/:id` | Confirmation / validation / notes (TC cannot change validation) |
+
+Create body requires ≥1 photo ref (`storageKey`, `fileName`, `contentType`, `sizeBytes`) from a prior upload. Threshold: `GPS_DISTANCE_METERS` (default **10**). Seed loads 6 visits + 1 GPS fraud flag; seed photo keys are metadata-only (no MinIO objects).
+
 ## Scripts
 
 | Command | Description |
@@ -208,9 +223,7 @@ Seed COAP dates are mostly **2026-09**. For non-empty “this month” KPIs agai
 | `npm run lint` | Typecheck (`tsc --noEmit`) |
 | `npm run prisma:migrate` | Create/apply migrations (dev) |
 | `npm run prisma:deploy` | Apply migrations (CI/prod) |
-| `npm run db:seed` | Seed users + geo + agents + full COAP sample (through feedback) |
-
-Insights (B9) need no extra seed — they aggregate B4–B8 tables.
+| `npm run db:seed` | Seed users + geo + agents + COAP + visits (+ GPS fraud flag) |
 
 ## Project structure
 
@@ -219,9 +232,9 @@ backend/
   prisma/           # schema + migrations + seed
   src/
     config/         # env validation
-    lib/            # prisma, logger, errors, tokens, cookies, tc-scope
+    lib/            # prisma, logger, errors, tokens, cookies, tc-scope, gps, storage
     middleware/     # authenticate, rbac, error + 404
-    modules/        # health, auth, …
+    modules/        # health, auth, territories, agents, coap, visits, insights, …
     app.ts          # Express app factory
     server.ts       # HTTP listen + shutdown
 ```
@@ -240,6 +253,7 @@ backend/
 | B7 — Sales | Complete |
 | B8 — Feedback | Complete |
 | B9 — Insights aggregates | Complete |
-| B10 — Visits | Next |
+| B10 — Visits (GPS + MinIO photos) | Complete |
+| B11 — Fraud review | Next |
 
 See `../DOCs/SAMU-Backend-Implementation-Phases.md`.

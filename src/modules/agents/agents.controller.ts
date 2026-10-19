@@ -37,7 +37,7 @@ export const list: RequestHandler = async (req, res, next) => {
 };
 
 /**
- * GET /api/v1/agents/:id — detail (visits empty until B10).
+ * GET /api/v1/agents/:id — detail + recent visits.
  */
 export const getById: RequestHandler = async (req, res, next) => {
   try {

@@ -152,7 +152,7 @@ export async function listAgents(
 }
 
 /**
- * Agent detail + assignment history. Visits deferred to Phase B10.
+ * Agent detail + assignment history + recent visits.
  */
 export async function getAgentDetail(id: string, viewer: AuthUser) {
   const agent = await prisma.agent.findUnique({
@@ -171,9 +171,42 @@ export async function getAgentDetail(id: string, viewer: AuthUser) {
   }
   assertCanViewAgent(agent.tcUserId, viewer);
 
+  const recentVisits = await prisma.visit.findMany({
+    where: { agentId: id },
+    include: {
+      photos: true,
+      tcUser: { select: { name: true } },
+    },
+    orderBy: { startedAt: "desc" },
+    take: 10,
+  });
+
   return {
     agent: toPublicAgent(agent, agent.tcUser.name),
-    visits: [] as unknown[],
+    visits: recentVisits.map((visit) => ({
+      id: visit.id,
+      agentId: visit.agentId,
+      tcUserId: visit.tcUserId,
+      startedAt: visit.startedAt.toISOString(),
+      endedAt: visit.endedAt.toISOString(),
+      durationMinutes: visit.durationMinutes,
+      purpose: visit.purpose,
+      activities: visit.activities,
+      outcome: visit.outcome,
+      location: {
+        lat: visit.lat,
+        lng: visit.lng,
+        accuracyMeters: visit.accuracyMeters ?? undefined,
+      },
+      distanceFromRegisteredMeters: visit.distanceFromRegisteredMeters,
+      validation: visit.validation,
+      confirmationStatus: visit.confirmationStatus,
+      photoCount: visit.photos.length,
+      challenges: visit.challenges ?? undefined,
+      supportNeeded: visit.supportNeeded ?? undefined,
+      flaggedReason: visit.flaggedReason ?? undefined,
+      tcName: visit.tcUser.name,
+    })),
     assignments: agent.assignments.map((a) => ({
       id: a.id,
       agentId: a.agentId,

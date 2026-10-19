@@ -1,4 +1,4 @@
-// SAMU Prisma schema — Phase B8 adds COAP community feedback.
+// SAMU Prisma schema — Phase B10 adds field visits + photos (+ GPS fraud flags).
 // Keep this file the single source of DB truth.
 
 generator client {
@@ -131,6 +131,33 @@ enum FeedbackStatus {
   resolved
 }
 
+enum VisitValidation {
+  accepted
+  flagged
+  rejected
+}
+
+enum SmsConfirmationStatus {
+  pending
+  confirmed
+  disputed
+  expired
+  delivery_failed
+}
+
+enum FraudSeverity {
+  low
+  medium
+  high
+}
+
+enum FraudStatus {
+  open
+  escalated
+  resolved
+  dismissed
+}
+
 model User {
   id             String     @id @default(cuid())
   email          String     @unique
@@ -157,6 +184,8 @@ model User {
   onboardingCases       OnboardingCase[]      @relation("OnboardingTc")
   sales                 Sale[]                @relation("SaleTc")
   communityFeedback     CommunityFeedback[]   @relation("FeedbackTc")
+  visits                Visit[]               @relation("VisitTc")
+  fraudFlagsReviewed    FraudFlag[]           @relation("FraudReviewer")
 
   @@index([role])
   @@index([status])
@@ -251,6 +280,7 @@ model Agent {
   portalUsers      User[]            @relation("UserPortalAgent")
   fieldActivities  FieldActivity[]
   onboardingCases  OnboardingCase[]
+  visits           Visit[]
 
   @@index([tcUserId])
   @@index([status])
@@ -448,4 +478,92 @@ model CommunityFeedback {
   @@index([leadId])
   @@index([updatedAt])
   @@map("community_feedback")
+}
+
+/// Field visit captured by a TC (or Admin) at an agent's registered location.
+model Visit {
+  id                            String                @id
+  agentId                       String                @map("agent_id")
+  tcUserId                      String                @map("tc_user_id")
+  purpose                       String
+  startedAt                     DateTime              @map("started_at")
+  endedAt                       DateTime              @map("ended_at")
+  durationMinutes               Int                   @map("duration_minutes")
+  activities                    String
+  outcome                       String
+  lat                           Float
+  lng                           Float
+  accuracyMeters                Float?                @map("accuracy_meters")
+  distanceFromRegisteredMeters  Int                   @map("distance_from_registered_meters")
+  validation                    VisitValidation
+  confirmationStatus            SmsConfirmationStatus @default(pending) @map("confirmation_status")
+  challenges                    String?
+  supportNeeded                 String?               @map("support_needed")
+  flaggedReason                 String?               @map("flagged_reason")
+  /// Snapshot of agent readiness checklist at visit time.
+  checklistJson                 Json?                 @map("checklist_json")
+  /// COAP service lines touched during the visit.
+  serviceLinesJson              Json?                 @map("service_lines_json")
+  deviceInfo                    String?               @map("device_info")
+  /// Optional client Idempotency-Key (retry-safe create).
+  idempotencyKey                String?               @unique @map("idempotency_key")
+  createdAt                     DateTime              @default(now()) @map("created_at")
+  updatedAt                     DateTime              @updatedAt @map("updated_at")
+
+  agent      Agent        @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  tcUser     User         @relation("VisitTc", fields: [tcUserId], references: [id], onDelete: Restrict)
+  photos     VisitPhoto[]
+  fraudFlags FraudFlag[]
+
+  @@index([agentId])
+  @@index([tcUserId])
+  @@index([validation])
+  @@index([confirmationStatus])
+  @@index([purpose])
+  @@index([startedAt])
+  @@map("visits")
+}
+
+model VisitPhoto {
+  id          String   @id @default(cuid())
+  visitId     String   @map("visit_id")
+  storageKey  String   @map("storage_key")
+  fileName    String   @map("file_name")
+  contentType String   @map("content_type")
+  sizeBytes   Int      @map("size_bytes")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  visit Visit @relation(fields: [visitId], references: [id], onDelete: Cascade)
+
+  @@index([visitId])
+  @@index([storageKey])
+  @@map("visit_photos")
+}
+
+/// Suspicious visit markers. Review workflow APIs land in Phase B11.
+model FraudFlag {
+  id                 String        @id
+  visitId            String        @map("visit_id")
+  type               String
+  severity           FraudSeverity
+  status             FraudStatus   @default(open)
+  notes              String?
+  resolution         String?
+  detectedAt         DateTime      @map("detected_at")
+  reviewedAt         DateTime?     @map("reviewed_at")
+  reviewedByUserId   String?       @map("reviewed_by_user_id")
+  /// Append-only review events (escalate, resolve, dismiss, …).
+  reviewHistoryJson  Json          @default("[]") @map("review_history_json")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+
+  visit      Visit @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  reviewedBy User? @relation("FraudReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([visitId])
+  @@index([status])
+  @@index([severity])
+  @@index([type])
+  @@index([detectedAt])
+  @@map("fraud_flags")
 }
