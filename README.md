@@ -253,7 +253,7 @@ TC monthly narratives with KPI snapshots; Head Office scorecards.
 | `PATCH` | `/api/v1/scorecards/:id` | Save criteria / decision |
 | `POST` | `/api/v1/scorecards/:id/submit` | Marks linked report `evaluated` |
 
-KPI targets are defaults until B14 settings. Sensitization/training/meeting KPIs stay 0 until those entities exist. Seed: 3 reports + 2 scorecards.
+KPI targets come from `SystemSettings` (B14). Sensitization/training/meeting KPIs stay 0 until those entities exist. Seed: 3 reports + 2 scorecards.
 
 ## Analytics + maps (Phase B13)
 
@@ -267,6 +267,22 @@ Read-only aggregates over agents, visits, and fraud (no new tables). TC-scoped; 
 
 `openActionItems` is `0` until action-item APIs exist. Monthly trend uses live visit months only (no fabricated history).
 
+## Admin + messaging (Phase B14)
+
+Singleton settings, append-only audit log, and stub SMS outbox (no external gateway).
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/api/v1/admin/settings` | Admin + Ops |
+| `PATCH` | `/api/v1/admin/settings` | Admin only — GPS threshold, compliance days, KPI targets, SMS templates |
+| `GET` | `/api/v1/admin/audit` | Paginated; filters: `action`, `objectType`, `actorUserId`, `dateFrom`, `dateTo` |
+| `GET` | `/api/v1/admin/audit/filters` | Distinct actions / object types / actors |
+| `GET` | `/api/v1/messaging/status` | Provider = `stub`; lists template ids |
+| `GET` | `/api/v1/messaging` | Outbox list |
+| `POST` | `/api/v1/messaging/sms` | Records outbox row as `stub_sent` (no send) |
+
+Visit GPS validation and report KPI progress read from settings. Audit writes on login, visit create, fraud review, report submit, settings patch, and stub SMS.
+
 ## Scripts
 
 | Command | Description |
@@ -277,7 +293,7 @@ Read-only aggregates over agents, visits, and fraud (no new tables). TC-scoped; 
 | `npm run lint` | Typecheck (`tsc --noEmit`) |
 | `npm run prisma:migrate` | Create/apply migrations (dev) |
 | `npm run prisma:deploy` | Apply migrations (CI/prod) |
-| `npm run db:seed` | Seed users + geo + agents + COAP + visits + fraud + reports/scorecards |
+| `npm run db:seed` | Seed users + geo + agents + COAP + visits + fraud + reports/scorecards + settings/audit |
 
 ## Project structure
 
@@ -286,9 +302,9 @@ backend/
   prisma/           # schema + migrations + seed
   src/
     config/         # env validation
-    lib/            # prisma, logger, errors, tokens, cookies, tc-scope, gps, storage
+    lib/            # prisma, logger, errors, tokens, cookies, tc-scope, gps, storage, audit, settings
     middleware/     # authenticate, rbac, error + 404
-    modules/        # health, auth, territories, agents, coap, visits, insights, …
+    modules/        # health, auth, …, admin, messaging
     app.ts          # Express app factory
     server.ts       # HTTP listen + shutdown
 ```
@@ -311,6 +327,6 @@ backend/
 | B11 — Fraud review | Complete |
 | B12 — Reporting (monthly + scorecards) | Complete |
 | B13 — Analytics / maps | Complete |
-| B14 — Admin / audit / messaging | Next |
+| B14 — Admin / audit / messaging | Complete |
 
 See `../DOCs/SAMU-Backend-Implementation-Phases.md`.

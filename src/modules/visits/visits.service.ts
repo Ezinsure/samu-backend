@@ -5,11 +5,12 @@ import type {
   VisitPhoto,
   VisitValidation,
 } from "@prisma/client";
-import { env } from "../../config/env.js";
+import { writeAuditLog } from "../../lib/audit.js";
 import { errors } from "../../lib/errors.js";
 import { distanceMeters, evaluateGpsValidation } from "../../lib/gps.js";
 import { logger } from "../../lib/logger.js";
 import { prisma } from "../../lib/prisma.js";
+import { getGpsThresholdMeters } from "../../lib/settings.js";
 import { getSignedPhotoUrl, uploadVisitPhoto } from "../../lib/storage.js";
 import { isNationalReader } from "../../lib/tc-scope.js";
 import type { AuthUser } from "../../types/express.js";
@@ -203,7 +204,7 @@ export async function getFilterOptions(viewer: AuthUser) {
         "expired",
         "delivery_failed",
       ],
-      gpsThresholdMeters: env.GPS_DISTANCE_METERS,
+      gpsThresholdMeters: await getGpsThresholdMeters(),
     };
   }
 
@@ -233,7 +234,7 @@ export async function getFilterOptions(viewer: AuthUser) {
       "expired",
       "delivery_failed",
     ] as const,
-    gpsThresholdMeters: env.GPS_DISTANCE_METERS,
+    gpsThresholdMeters: await getGpsThresholdMeters(),
   };
 }
 
@@ -358,7 +359,7 @@ export async function getVisitDetail(id: string, viewer: AuthUser) {
       compliance: visit.agent.compliance,
     },
     fraudFlags: visit.fraudFlags.map(toPublicFraud),
-    gpsThresholdMeters: env.GPS_DISTANCE_METERS,
+    gpsThresholdMeters: await getGpsThresholdMeters(),
   };
 }
 
@@ -427,7 +428,8 @@ export async function createVisit(
       { lat: agent.lat, lng: agent.lng },
     ),
   );
-  const gps = evaluateGpsValidation(distance, env.GPS_DISTANCE_METERS);
+  const threshold = await getGpsThresholdMeters();
+  const gps = evaluateGpsValidation(distance, threshold);
 
   const tcUserId =
     viewer.role === "TERRITORY_COORDINATOR" ? viewer.id : agent.tcUserId;
@@ -514,6 +516,14 @@ export async function createVisit(
     },
     "Visit created",
   );
+
+  await writeAuditLog({
+    actorUserId: viewer.id,
+    action: "visit.create",
+    objectType: "visit",
+    objectId: visit.id,
+    summary: `Visit ${visit.id} created for agent ${agent.id} (${visit.validation}, ${distance}m / ${threshold}m).`,
+  });
 
   return toPublicVisit(visit);
 }

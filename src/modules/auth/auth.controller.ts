@@ -27,7 +27,10 @@ export const register: RequestHandler = async (req, res, next) => {
 export const login: RequestHandler = async (req, res, next) => {
   try {
     const body = loginBodySchema.parse(req.body);
-    const session = await authService.loginUser(body);
+    const session = await authService.loginUser(body, {
+      ip: req.ip,
+      userAgent: req.get("user-agent") ?? undefined,
+    });
     setAuthCookies(res, session.accessToken, session.refreshToken);
     res.json({ data: { user: session.user } });
   } catch (error) {

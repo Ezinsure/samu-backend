@@ -83,12 +83,25 @@ export async function registerUser(input: RegisterBody): Promise<PublicUser> {
 /**
  * Authenticate an active user and issue a new access + refresh pair.
  */
-export async function loginUser(input: LoginBody): Promise<AuthSession> {
+export async function loginUser(
+  input: LoginBody,
+  meta?: { ip?: string; userAgent?: string },
+): Promise<AuthSession> {
+  const { writeAuditLog } = await import("../../lib/audit.js");
   const user = await prisma.user.findUnique({ where: { email: input.email } });
 
   // Generic message — do not reveal whether email exists.
-  const failCredentials = (): never => {
+  const failCredentials = async (): Promise<never> => {
     logger.warn({ email: input.email }, "Login failed");
+    await writeAuditLog({
+      actorUserId: user?.id,
+      action: "user.login_failed",
+      objectType: "user",
+      objectId: user?.id ?? input.email,
+      summary: `Failed login attempt for ${input.email}.`,
+      ip: meta?.ip,
+      userAgent: meta?.userAgent,
+    });
     throw errors.unauthorized("Invalid email or password");
   };
 
@@ -116,6 +129,16 @@ export async function loginUser(input: LoginBody): Promise<AuthSession> {
   await prisma.user.update({
     where: { id: user.id },
     data: { lastLoginAt },
+  });
+
+  await writeAuditLog({
+    actorUserId: user.id,
+    action: "user.login",
+    objectType: "user",
+    objectId: user.id,
+    summary: `${user.name} signed in.`,
+    ip: meta?.ip,
+    userAgent: meta?.userAgent,
   });
 
   logger.info({ userId: user.id, role: user.role }, "Login success");

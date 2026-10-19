@@ -1,9 +1,9 @@
 import type { MonthlyReport, Prisma, ReportStatus } from "@prisma/client";
+import { writeAuditLog } from "../../lib/audit.js";
 import { errors } from "../../lib/errors.js";
 import { logger } from "../../lib/logger.js";
 import { prisma } from "../../lib/prisma.js";
 import {
-  DEFAULT_KPI_TARGETS,
   EMPTY_NARRATIVE,
   NARRATIVE_KEYS,
   daysUntilDeadline,
@@ -12,6 +12,7 @@ import {
   periodDeadline,
   type ReportNarrative,
 } from "../../lib/reporting.js";
+import { getKpiTargets } from "../../lib/settings.js";
 import { isNationalReader } from "../../lib/tc-scope.js";
 import type { AuthUser } from "../../types/express.js";
 import type {
@@ -109,6 +110,7 @@ function asAgents(json: Prisma.JsonValue): AgentSnapshot[] {
 
 function toPublic(
   report: MonthlyReport & { tcUser?: { name: string } },
+  targets?: Record<string, number>,
 ): PublicReport {
   const kpiActuals = asRecord(report.kpiActualsJson);
   const days = daysUntilDeadline(report.deadline);
@@ -130,7 +132,7 @@ function toPublic(
     overdue:
       days < 0 &&
       (report.status === "draft" || report.status === "changes_requested"),
-    kpiProgressPercent: kpiProgressPercent(kpiActuals),
+    kpiProgressPercent: kpiProgressPercent(kpiActuals, targets),
   };
 }
 
@@ -279,11 +281,11 @@ export async function getFilterOptions(viewer: AuthUser) {
       periods: [],
       statuses: [],
       coordinators: [],
-      targets: DEFAULT_KPI_TARGETS,
+      targets: await getKpiTargets(),
     };
   }
 
-  const [periods, coordinators] = await Promise.all([
+  const [periods, coordinators, targets] = await Promise.all([
     prisma.monthlyReport.findMany({
       where,
       select: { period: true },
@@ -295,6 +297,7 @@ export async function getFilterOptions(viewer: AuthUser) {
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
+    getKpiTargets(),
   ]);
 
   return {
@@ -309,7 +312,7 @@ export async function getFilterOptions(viewer: AuthUser) {
       "evaluated",
     ],
     coordinators,
-    targets: DEFAULT_KPI_TARGETS,
+    targets,
   };
 }
 
@@ -342,17 +345,20 @@ export async function listReports(
     ];
   }
 
-  const total = await prisma.monthlyReport.count({ where });
-  const rows = await prisma.monthlyReport.findMany({
-    where,
-    include: { tcUser: { select: { name: true } } },
-    orderBy: [{ period: "desc" }, { tcUserId: "asc" }],
-    skip: (query.page - 1) * query.pageSize,
-    take: query.pageSize,
-  });
+  const [total, rows, targets] = await Promise.all([
+    prisma.monthlyReport.count({ where }),
+    prisma.monthlyReport.findMany({
+      where,
+      include: { tcUser: { select: { name: true } } },
+      orderBy: [{ period: "desc" }, { tcUserId: "asc" }],
+      skip: (query.page - 1) * query.pageSize,
+      take: query.pageSize,
+    }),
+    getKpiTargets(),
+  ]);
 
   return {
-    data: rows.map(toPublic),
+    data: rows.map((row) => toPublic(row, targets)),
     meta: {
       page: query.page,
       pageSize: query.pageSize,
@@ -370,7 +376,8 @@ export async function getWorkspace(id: string, viewer: AuthUser) {
   if (!report) throw errors.notFound("Monthly report not found");
   assertCanView(report.tcUserId, viewer);
 
-  const publicReport = toPublic(report);
+  const targets = await getKpiTargets();
+  const publicReport = toPublic(report, targets);
   let mapping = publicReport.agentMappingSnapshot;
   if (
     mapping.length === 0 ||
@@ -404,7 +411,7 @@ export async function getWorkspace(id: string, viewer: AuthUser) {
 
   return {
     report: { ...publicReport, agentMappingSnapshot: mapping },
-    targets: DEFAULT_KPI_TARGETS,
+    targets,
     linkedActivities: {
       visits: visitsCount,
       sensitizations: [] as unknown[],
@@ -593,6 +600,15 @@ export async function submitReport(
   });
 
   logger.info({ reportId: id, status: nextStatus }, "Monthly report submitted");
+
+  await writeAuditLog({
+    actorUserId: viewer.id,
+    action: "report.submit",
+    objectType: "monthly_report",
+    objectId: id,
+    summary: `Monthly report ${id} ${nextStatus} for period ${report.period}.`,
+  });
+
   return toPublic(updated);
 }
 

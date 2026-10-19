@@ -1,6 +1,6 @@
 import type { ScorecardDecision } from "@prisma/client";
 
-/** Default KPI targets until system settings land in B14. */
+/** Default KPI targets (also used to seed SystemSettings). */
 export const DEFAULT_KPI_TARGETS: Record<string, number> = {
   totalVisits: 20,
   uniqueAgentsVisited: 18,

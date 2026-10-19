@@ -6,6 +6,7 @@ import type {
   Visit,
   VisitValidation,
 } from "@prisma/client";
+import { writeAuditLog } from "../../lib/audit.js";
 import { errors } from "../../lib/errors.js";
 import { logger } from "../../lib/logger.js";
 import { prisma } from "../../lib/prisma.js";
@@ -371,6 +372,14 @@ export async function reviewFlag(
     { flagId: id, action: input.action, status: nextStatus },
     "Fraud flag reviewed",
   );
+
+  await writeAuditLog({
+    actorUserId: viewer.id,
+    action: `fraud.${input.action}`,
+    objectType: "fraud_flag",
+    objectId: id,
+    summary: `Fraud flag ${id} ${input.action} → ${nextStatus}.`,
+  });
 
   return enrich(updated);
 }

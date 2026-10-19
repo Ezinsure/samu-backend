@@ -695,6 +695,70 @@ async function seedVisits(userByEmail: Map<string, string>) {
   }
 }
 
+async function seedAdmin(userByEmail: Map<string, string>) {
+  console.log("Seeding system settings + sample audit…");
+
+  const adminId = userByEmail.get("admin@solektra.rw");
+  const { DEFAULT_KPI_TARGETS } = await import("../src/lib/reporting.js");
+
+  await prisma.systemSettings.upsert({
+    where: { id: "default" },
+    create: {
+      id: "default",
+      gpsDistanceMeters: 10,
+      agentGreenDays: 60,
+      agentYellowDays: 30,
+      tcComplianceGreen: 90,
+      tcComplianceYellow: 70,
+      monthlyReportDueDay: 5,
+      kpiTargetsJson: DEFAULT_KPI_TARGETS,
+      smsTemplatesJson: {
+        visit_confirmation:
+          "SAMU: A territory coordinator visited you today. Reply YES to confirm or NO if incorrect.",
+        visit_reminder:
+          "SAMU reminder: please confirm your recent agent visit via SMS.",
+      },
+      updatedByUserId: adminId ?? null,
+    },
+    update: {},
+  });
+  console.log("  ✓ system_settings/default");
+
+  const sampleAudits = [
+    {
+      id: "audit-seed-settings",
+      actorUserId: adminId ?? null,
+      action: "settings.seed",
+      objectType: "system_settings",
+      objectId: "default",
+      summary: "System settings seeded for local development.",
+    },
+    {
+      id: "audit-seed-login",
+      actorUserId: adminId ?? null,
+      action: "user.login",
+      objectType: "user",
+      objectId: adminId ?? "admin",
+      summary: "Seed placeholder: Admin signed in.",
+    },
+  ];
+
+  for (const row of sampleAudits) {
+    await prisma.auditLog.upsert({
+      where: { id: row.id },
+      create: row,
+      update: {
+        actorUserId: row.actorUserId,
+        action: row.action,
+        objectType: row.objectType,
+        objectId: row.objectId,
+        summary: row.summary,
+      },
+    });
+    console.log(`  ✓ ${row.id}`);
+  }
+}
+
 /**
  * Idempotent seed: users, geo, agents, COAP sample, visits.
  */
@@ -709,6 +773,7 @@ async function main() {
   await seedFeedback(userByEmail);
   await seedVisits(userByEmail);
   await seedReports(userByEmail);
+  await seedAdmin(userByEmail);
   console.log("Seed complete.");
 }
 

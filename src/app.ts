@@ -8,6 +8,7 @@ import { logger } from "./lib/logger.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { notFoundHandler } from "./middleware/not-found.js";
 import { activitiesRouter } from "./modules/activities/activities.routes.js";
+import { adminRouter } from "./modules/admin/admin.routes.js";
 import { agentsRouter } from "./modules/agents/agents.routes.js";
 import { authRouter } from "./modules/auth/auth.routes.js";
 import { coapRouter } from "./modules/coap/coap.routes.js";
@@ -17,6 +18,7 @@ import { leadsRouter } from "./modules/leads/leads.routes.js";
 import { feedbackRouter } from "./modules/feedback/feedback.routes.js";
 import { fraudRouter } from "./modules/fraud/fraud.routes.js";
 import { mapsRouter } from "./modules/maps/maps.routes.js";
+import { messagingRouter } from "./modules/messaging/messaging.routes.js";
 import { onboardingRouter } from "./modules/onboarding/onboarding.routes.js";
 import { reportsRouter } from "./modules/reports/reports.routes.js";
 import { salesRouter } from "./modules/sales/sales.routes.js";
@@ -77,6 +79,8 @@ export function createApp() {
   api.use("/monthly-reports", reportsRouter);
   api.use("/scorecards", scorecardsRouter);
   api.use("/maps", mapsRouter);
+  api.use("/admin", adminRouter);
+  api.use("/messaging", messagingRouter);
   app.use("/api/v1", api);
 
   app.use(notFoundHandler);
