@@ -1,0 +1,22 @@
+// SAMU Prisma schema — Phase B0 bootstrap.
+// Auth/users models land in Phase B1. Keep this file the single source of DB truth.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Lightweight marker row so migrate/deploy always has at least one model
+/// and operators can verify write connectivity during health checks.
+model SchemaMeta {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("schema_meta")
+}
