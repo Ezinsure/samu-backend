@@ -4,6 +4,7 @@ import { SEED_AGENTS } from "./seed-agents-data.js";
 import { SEED_ACTIVITIES } from "./seed-activities-data.js";
 import { SEED_LEADS } from "./seed-leads-data.js";
 import { SEED_ONBOARDING } from "./seed-onboarding-data.js";
+import { SEED_FEEDBACK } from "./seed-feedback-data.js";
 import { SEED_SALES } from "./seed-sales-data.js";
 
 const prisma = new PrismaClient();
@@ -524,8 +525,57 @@ async function seedSales(userByEmail: Map<string, string>) {
   }
 }
 
+async function seedFeedback(userByEmail: Map<string, string>) {
+  console.log("Seeding COAP community feedback…");
+
+  for (const row of SEED_FEEDBACK) {
+    const tcUserId = userByEmail.get(row.tcEmail);
+    if (!tcUserId) {
+      throw new Error(`Missing seed TC for ${row.tcEmail}`);
+    }
+
+    const item = await prisma.communityFeedback.upsert({
+      where: { id: row.id },
+      create: {
+        id: row.id,
+        tcUserId,
+        serviceLine: row.serviceLine ?? null,
+        kind: row.kind,
+        severity: row.severity,
+        status: row.status,
+        title: row.title,
+        description: row.description,
+        geoProvince: row.province,
+        geoDistrict: row.district,
+        geoSector: row.sector,
+        leadId: row.leadId ?? null,
+        resolutionNotes: row.resolutionNotes ?? null,
+        createdAt: new Date(row.createdAt),
+        updatedAt: new Date(row.updatedAt),
+      },
+      update: {
+        tcUserId,
+        serviceLine: row.serviceLine ?? null,
+        kind: row.kind,
+        severity: row.severity,
+        status: row.status,
+        title: row.title,
+        description: row.description,
+        geoProvince: row.province,
+        geoDistrict: row.district,
+        geoSector: row.sector,
+        leadId: row.leadId ?? null,
+        resolutionNotes: row.resolutionNotes ?? null,
+        updatedAt: new Date(row.updatedAt),
+      },
+    });
+
+    console.log(`  ✓ ${item.id} (${item.title})`);
+  }
+}
+
 /**
- * Idempotent seed: users, geo, agents, COAP leads → sales.
+ * Idempotent seed: users, geo, agents, full COAP sample through feedback.
  */
 async function main() {
   const userByEmail = await seedUsers();
@@ -535,6 +585,7 @@ async function main() {
   await seedActivities(userByEmail);
   await seedOnboarding(userByEmail);
   await seedSales(userByEmail);
+  await seedFeedback(userByEmail);
   console.log("Seed complete.");
 }
 

@@ -1,4 +1,4 @@
-// SAMU Prisma schema — Phase B7 adds COAP sales.
+// SAMU Prisma schema — Phase B8 adds COAP community feedback.
 // Keep this file the single source of DB truth.
 
 generator client {
@@ -113,6 +113,24 @@ enum SaleProductCategory {
   other
 }
 
+enum FeedbackKind {
+  need
+  challenge
+  opportunity
+}
+
+enum FeedbackSeverity {
+  low
+  medium
+  high
+}
+
+enum FeedbackStatus {
+  open
+  acknowledged
+  resolved
+}
+
 model User {
   id             String     @id @default(cuid())
   email          String     @unique
@@ -138,6 +156,7 @@ model User {
   fieldActivities       FieldActivity[]       @relation("FieldActivityTc")
   onboardingCases       OnboardingCase[]      @relation("OnboardingTc")
   sales                 Sale[]                @relation("SaleTc")
+  communityFeedback     CommunityFeedback[]   @relation("FeedbackTc")
 
   @@index([role])
   @@index([status])
@@ -279,9 +298,10 @@ model Lead {
   updatedAt        DateTime       @updatedAt @map("updated_at")
 
   tcUser          User             @relation("LeadTc", fields: [tcUserId], references: [id], onDelete: Restrict)
-  fieldActivities FieldActivity[]
-  onboardingCases OnboardingCase[]
-  sales           Sale[]
+  fieldActivities   FieldActivity[]
+  onboardingCases   OnboardingCase[]
+  sales             Sale[]
+  communityFeedback CommunityFeedback[]
 
   @@index([tcUserId])
   @@index([serviceLine])
@@ -396,4 +416,36 @@ model Sale {
   @@index([leadId])
   @@index([onboardingId])
   @@map("sales")
+}
+
+/// COAP community feedback — needs, challenges, and opportunities from the field.
+model CommunityFeedback {
+  id               String            @id
+  tcUserId         String            @map("tc_user_id")
+  serviceLine      ServiceLine?      @map("service_line")
+  kind             FeedbackKind
+  severity         FeedbackSeverity
+  status           FeedbackStatus    @default(open)
+  title            String
+  description      String
+  geoProvince      String            @map("geo_province")
+  geoDistrict      String            @map("geo_district")
+  geoSector        String            @map("geo_sector")
+  leadId           String?           @map("lead_id")
+  resolutionNotes  String?           @map("resolution_notes")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  tcUser User  @relation("FeedbackTc", fields: [tcUserId], references: [id], onDelete: Restrict)
+  lead   Lead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@index([tcUserId])
+  @@index([serviceLine])
+  @@index([kind])
+  @@index([severity])
+  @@index([status])
+  @@index([geoDistrict])
+  @@index([leadId])
+  @@index([updatedAt])
+  @@map("community_feedback")
 }

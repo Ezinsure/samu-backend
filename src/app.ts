@@ -12,6 +12,7 @@ import { agentsRouter } from "./modules/agents/agents.routes.js";
 import { authRouter } from "./modules/auth/auth.routes.js";
 import { healthRouter } from "./modules/health/health.routes.js";
 import { leadsRouter } from "./modules/leads/leads.routes.js";
+import { feedbackRouter } from "./modules/feedback/feedback.routes.js";
 import { onboardingRouter } from "./modules/onboarding/onboarding.routes.js";
 import { salesRouter } from "./modules/sales/sales.routes.js";
 import { territoriesRouter } from "./modules/territories/territories.routes.js";
@@ -61,6 +62,7 @@ export function createApp() {
   api.use("/field-activities", activitiesRouter);
   api.use("/onboarding", onboardingRouter);
   api.use("/sales", salesRouter);
+  api.use("/feedback", feedbackRouter);
   app.use("/api/v1", api);
 
   app.use(notFoundHandler);

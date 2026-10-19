@@ -174,6 +174,17 @@ Seed loads 6 demo onboarding cases linked to seed leads.
 
 Seed loads 4 demo sales linked to leads/onboarding where applicable.
 
+## Feedback — COAP (Phase B8)
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/api/v1/feedback` | Paginated — `search`, `serviceLine`, `kind`, `status`, `tcUserId` |
+| `GET` | `/api/v1/feedback/:id` | Single item (TC-scoped) |
+| `POST` | `/api/v1/feedback` | Admin / Ops / TC create (`serviceLine` optional) |
+| `PATCH` | `/api/v1/feedback/:id` | Admin / Ops / owning TC; optional `resolutionNotes` |
+
+Seed loads 4 demo feedback items. **COAP core (B4–B8) is complete.**
+
 ## Scripts
 
 | Command | Description |
@@ -184,7 +195,7 @@ Seed loads 4 demo sales linked to leads/onboarding where applicable.
 | `npm run lint` | Typecheck (`tsc --noEmit`) |
 | `npm run prisma:migrate` | Create/apply migrations (dev) |
 | `npm run prisma:deploy` | Apply migrations (CI/prod) |
-| `npm run db:seed` | Seed users + geo + agents + full COAP sample (through sales) |
+| `npm run db:seed` | Seed users + geo + agents + full COAP sample (through feedback) |
 
 ## Project structure
 
@@ -212,6 +223,7 @@ backend/
 | B5 — Field activities | Complete |
 | B6 — Onboarding | Complete |
 | B7 — Sales | Complete |
-| B8 — Feedback | Next |
+| B8 — Feedback | Complete |
+| B9 — Insights aggregates | Next |
 
 See `../DOCs/SAMU-Backend-Implementation-Phases.md`.
