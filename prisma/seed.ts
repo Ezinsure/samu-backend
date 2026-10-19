@@ -1,6 +1,7 @@
 import { PrismaClient, type TerritoryType, type UserRole } from "@prisma/client";
 import argon2 from "argon2";
 import { SEED_AGENTS } from "./seed-agents-data.js";
+import { SEED_ACTIVITIES } from "./seed-activities-data.js";
 import { SEED_LEADS } from "./seed-leads-data.js";
 
 const prisma = new PrismaClient();
@@ -363,14 +364,64 @@ async function seedLeads(userByEmail: Map<string, string>) {
   }
 }
 
+async function seedActivities(userByEmail: Map<string, string>) {
+  console.log("Seeding COAP field activities…");
+
+  for (const row of SEED_ACTIVITIES) {
+    const tcUserId = userByEmail.get(row.tcEmail);
+    if (!tcUserId) {
+      throw new Error(`Missing seed TC for ${row.tcEmail}`);
+    }
+
+    const activity = await prisma.fieldActivity.upsert({
+      where: { id: row.id },
+      create: {
+        id: row.id,
+        tcUserId,
+        serviceLine: row.serviceLine,
+        activityType: row.activityType,
+        date: new Date(`${row.date}T00:00:00.000Z`),
+        geoProvince: row.province,
+        geoDistrict: row.district,
+        geoSector: row.sector,
+        venue: row.venue,
+        peopleReached: row.peopleReached,
+        summary: row.summary,
+        outcome: row.outcome,
+        leadId: row.leadId ?? null,
+        agentId: row.agentId ?? null,
+        createdAt: new Date(row.createdAt),
+      },
+      update: {
+        tcUserId,
+        serviceLine: row.serviceLine,
+        activityType: row.activityType,
+        date: new Date(`${row.date}T00:00:00.000Z`),
+        geoProvince: row.province,
+        geoDistrict: row.district,
+        geoSector: row.sector,
+        venue: row.venue,
+        peopleReached: row.peopleReached,
+        summary: row.summary,
+        outcome: row.outcome,
+        leadId: row.leadId ?? null,
+        agentId: row.agentId ?? null,
+      },
+    });
+
+    console.log(`  ✓ ${activity.id} (${activity.activityType})`);
+  }
+}
+
 /**
- * Idempotent seed: users, geo, agents, and COAP leads.
+ * Idempotent seed: users, geo, agents, leads, and field activities.
  */
 async function main() {
   const userByEmail = await seedUsers();
   await seedTerritories(userByEmail);
   await seedAgents(userByEmail);
   await seedLeads(userByEmail);
+  await seedActivities(userByEmail);
   console.log("Seed complete.");
 }
 

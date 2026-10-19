@@ -1,4 +1,4 @@
-// SAMU Prisma schema — Phase B4 adds COAP leads.
+// SAMU Prisma schema — Phase B5 adds COAP field activities.
 // Keep this file the single source of DB truth.
 
 generator client {
@@ -78,6 +78,14 @@ enum LeadEntityType {
   business
 }
 
+enum FieldActivityType {
+  education
+  demo
+  mobilization
+  support
+  campaign
+}
+
 model User {
   id             String     @id @default(cuid())
   email          String     @unique
@@ -100,6 +108,7 @@ model User {
   coordinatedAgents     Agent[]               @relation("AgentTc")
   agentAssignments      AgentAssignment[]     @relation("AgentAssignmentTc")
   leads                 Lead[]                @relation("LeadTc")
+  fieldActivities       FieldActivity[]       @relation("FieldActivityTc")
 
   @@index([role])
   @@index([status])
@@ -190,8 +199,9 @@ model Agent {
   updatedAt              DateTime       @updatedAt @map("updated_at")
 
   tcUser      User              @relation("AgentTc", fields: [tcUserId], references: [id], onDelete: Restrict)
-  assignments AgentAssignment[]
-  portalUsers User[]            @relation("UserPortalAgent")
+  assignments     AgentAssignment[]
+  portalUsers     User[]            @relation("UserPortalAgent")
+  fieldActivities FieldActivity[]
 
   @@index([tcUserId])
   @@index([status])
@@ -238,7 +248,8 @@ model Lead {
   createdAt        DateTime       @default(now()) @map("created_at")
   updatedAt        DateTime       @updatedAt @map("updated_at")
 
-  tcUser User @relation("LeadTc", fields: [tcUserId], references: [id], onDelete: Restrict)
+  tcUser          User            @relation("LeadTc", fields: [tcUserId], references: [id], onDelete: Restrict)
+  fieldActivities FieldActivity[]
 
   @@index([tcUserId])
   @@index([serviceLine])
@@ -246,4 +257,38 @@ model Lead {
   @@index([geoDistrict])
   @@index([updatedAt])
   @@map("leads")
+}
+
+/// COAP field activity — education, demo, mobilization, support, or campaign.
+model FieldActivity {
+  id             String            @id
+  tcUserId       String            @map("tc_user_id")
+  serviceLine    ServiceLine       @map("service_line")
+  activityType   FieldActivityType @map("activity_type")
+  /// Calendar date of the activity (YYYY-MM-DD semantics).
+  date           DateTime          @db.Date
+  geoProvince    String            @map("geo_province")
+  geoDistrict    String            @map("geo_district")
+  geoSector      String            @map("geo_sector")
+  venue          String
+  peopleReached  Int               @map("people_reached")
+  summary        String
+  outcome        String
+  leadId         String?           @map("lead_id")
+  agentId        String?           @map("agent_id")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  tcUser User   @relation("FieldActivityTc", fields: [tcUserId], references: [id], onDelete: Restrict)
+  lead   Lead?  @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  agent  Agent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  @@index([tcUserId])
+  @@index([serviceLine])
+  @@index([activityType])
+  @@index([date])
+  @@index([geoDistrict])
+  @@index([leadId])
+  @@index([agentId])
+  @@map("field_activities")
 }

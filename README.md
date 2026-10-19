@@ -141,6 +141,17 @@ Seed loads 40 demo agents (same ids as the frontend). `agent.demo@solektra.rw` i
 
 Seed loads 8 demo leads matching the frontend COAP sample.
 
+## Field activities — COAP (Phase B5)
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/api/v1/field-activities` | Paginated — `search`, `serviceLine`, `activityType`, `tcUserId` |
+| `GET` | `/api/v1/field-activities/:id` | Single activity (TC-scoped) |
+| `POST` | `/api/v1/field-activities` | Admin / Ops / TC create |
+| `PATCH` | `/api/v1/field-activities/:id` | Admin / Ops / owning TC; optional `leadId` / `agentId` |
+
+Seed loads 6 demo activities (linked to seed leads where applicable).
+
 ## Scripts
 
 | Command | Description |
@@ -151,7 +162,7 @@ Seed loads 8 demo leads matching the frontend COAP sample.
 | `npm run lint` | Typecheck (`tsc --noEmit`) |
 | `npm run prisma:migrate` | Create/apply migrations (dev) |
 | `npm run prisma:deploy` | Apply migrations (CI/prod) |
-| `npm run db:seed` | Seed users + geo + agents + COAP leads |
+| `npm run db:seed` | Seed users + geo + agents + leads + field activities |
 
 ## Project structure
 
@@ -176,6 +187,7 @@ backend/
 | B2 — Territories | Complete |
 | B3 — Agents | Complete |
 | B4 — COAP Leads | Complete |
-| B5 — Field activities | Next |
+| B5 — Field activities | Complete |
+| B6 — Onboarding | Next |
 
 See `../DOCs/SAMU-Backend-Implementation-Phases.md`.
