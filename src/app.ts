@@ -16,6 +16,7 @@ import { insightsRouter } from "./modules/insights/insights.routes.js";
 import { leadsRouter } from "./modules/leads/leads.routes.js";
 import { feedbackRouter } from "./modules/feedback/feedback.routes.js";
 import { fraudRouter } from "./modules/fraud/fraud.routes.js";
+import { mapsRouter } from "./modules/maps/maps.routes.js";
 import { onboardingRouter } from "./modules/onboarding/onboarding.routes.js";
 import { reportsRouter } from "./modules/reports/reports.routes.js";
 import { salesRouter } from "./modules/sales/sales.routes.js";
@@ -75,6 +76,7 @@ export function createApp() {
   api.use("/fraud", fraudRouter);
   api.use("/monthly-reports", reportsRouter);
   api.use("/scorecards", scorecardsRouter);
+  api.use("/maps", mapsRouter);
   app.use("/api/v1", api);
 
   app.use(notFoundHandler);

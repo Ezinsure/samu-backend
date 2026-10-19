@@ -255,6 +255,18 @@ TC monthly narratives with KPI snapshots; Head Office scorecards.
 
 KPI targets are defaults until B14 settings. Sensitization/training/meeting KPIs stay 0 until those entities exist. Seed: 3 reports + 2 scorecards.
 
+## Analytics + maps (Phase B13)
+
+Read-only aggregates over agents, visits, and fraud (no new tables). TC-scoped; Admin/Ops/MD national. Optional filters: `dateFrom`, `dateTo`, `province`, `district`, `tcUserId`.
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/api/v1/insights/dashboard` | Compliance, visits by TC/district, monthly trend, leaderboard, overdue list |
+| `GET` | `/api/v1/insights/analytics` | Dashboard + SMS confirmation breakdown/trend |
+| `GET` | `/api/v1/maps/workspace` | Agent lat/lng points + compliance summary; filters: `compliance`, `status` |
+
+`openActionItems` is `0` until action-item APIs exist. Monthly trend uses live visit months only (no fabricated history).
+
 ## Scripts
 
 | Command | Description |
@@ -298,6 +310,7 @@ backend/
 | B10 — Visits (GPS + MinIO photos) | Complete |
 | B11 — Fraud review | Complete |
 | B12 — Reporting (monthly + scorecards) | Complete |
-| B13 — Analytics / maps | Next |
+| B13 — Analytics / maps | Complete |
+| B14 — Admin / audit / messaging | Next |
 
 See `../DOCs/SAMU-Backend-Implementation-Phases.md`.

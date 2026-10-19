@@ -1,7 +1,12 @@
 import { Router } from "express";
 import { authenticate } from "../../middleware/authenticate.js";
 import { requireRoles } from "../../middleware/rbac.js";
-import { coapDashboard, coapFilterOptions } from "./insights.controller.js";
+import {
+  analyticsWorkspace,
+  coapDashboard,
+  coapFilterOptions,
+  dashboard,
+} from "./insights.controller.js";
 
 const INSIGHT_READERS = [
   "ADMIN",
@@ -24,4 +29,12 @@ insightsRouter.get(
   "/coap-filter-options",
   requireRoles(...INSIGHT_READERS),
   coapFilterOptions,
+);
+
+insightsRouter.get("/dashboard", requireRoles(...INSIGHT_READERS), dashboard);
+
+insightsRouter.get(
+  "/analytics",
+  requireRoles(...INSIGHT_READERS),
+  analyticsWorkspace,
 );
