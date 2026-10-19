@@ -226,6 +226,35 @@ Admin / Ops review queue (MD read-only). Reviewers cannot act on flags for their
 
 `accept` / `dismiss` → close flag and set visit `validation: accepted`. `escalate` → `escalated` + severity `high` + assign reviewer. Seed: 4 flags (matches frontend demo).
 
+## Monthly reports + scorecards (Phase B12)
+
+TC monthly narratives with KPI snapshots; Head Office scorecards.
+
+### Reports
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/api/v1/monthly-reports/filters` | Periods, statuses, coordinators, KPI targets |
+| `GET` | `/api/v1/monthly-reports` | Paginated — TC-scoped |
+| `GET` | `/api/v1/monthly-reports/:id` | Workspace (targets, linked visit count, history) |
+| `POST` | `/api/v1/monthly-reports` | Create draft `{ period, tcUserId? }` |
+| `PATCH` | `/api/v1/monthly-reports/:id` | Save draft narrative / kpiActuals |
+| `POST` | `/api/v1/monthly-reports/:id/refresh-kpis` | Recompute from visits + COAP |
+| `POST` | `/api/v1/monthly-reports/:id/submit` | Snapshot agents; submitted / resubmitted |
+| `POST` | `/api/v1/monthly-reports/:id/request-changes` | Admin/Ops — `{ notes }` |
+
+### Scorecards
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/api/v1/scorecards` | Paginated |
+| `GET` | `/api/v1/scorecards/:id` | Workspace + criteria defs |
+| `POST` | `/api/v1/scorecards/ensure` | `{ monthlyReportId }` → draft scorecard |
+| `PATCH` | `/api/v1/scorecards/:id` | Save criteria / decision |
+| `POST` | `/api/v1/scorecards/:id/submit` | Marks linked report `evaluated` |
+
+KPI targets are defaults until B14 settings. Sensitization/training/meeting KPIs stay 0 until those entities exist. Seed: 3 reports + 2 scorecards.
+
 ## Scripts
 
 | Command | Description |
@@ -236,7 +265,7 @@ Admin / Ops review queue (MD read-only). Reviewers cannot act on flags for their
 | `npm run lint` | Typecheck (`tsc --noEmit`) |
 | `npm run prisma:migrate` | Create/apply migrations (dev) |
 | `npm run prisma:deploy` | Apply migrations (CI/prod) |
-| `npm run db:seed` | Seed users + geo + agents + COAP + visits (+ GPS fraud flag) |
+| `npm run db:seed` | Seed users + geo + agents + COAP + visits + fraud + reports/scorecards |
 
 ## Project structure
 
@@ -268,6 +297,7 @@ backend/
 | B9 — Insights aggregates | Complete |
 | B10 — Visits (GPS + MinIO photos) | Complete |
 | B11 — Fraud review | Complete |
-| B12 — Reporting | Next |
+| B12 — Reporting (monthly + scorecards) | Complete |
+| B13 — Analytics / maps | Next |
 
 See `../DOCs/SAMU-Backend-Implementation-Phases.md`.

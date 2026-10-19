@@ -7,6 +7,8 @@ import { SEED_ONBOARDING } from "./seed-onboarding-data.js";
 import { SEED_FEEDBACK } from "./seed-feedback-data.js";
 import { SEED_SALES } from "./seed-sales-data.js";
 import { SEED_FRAUD_FLAGS, SEED_VISITS } from "./seed-visits-data.js";
+import { SEED_REPORTS, SEED_SCORECARDS } from "./seed-reports-data.js";
+import { decisionFromApi } from "../src/lib/reporting.js";
 
 const prisma = new PrismaClient();
 
@@ -706,7 +708,101 @@ async function main() {
   await seedSales(userByEmail);
   await seedFeedback(userByEmail);
   await seedVisits(userByEmail);
+  await seedReports(userByEmail);
   console.log("Seed complete.");
+}
+
+async function seedReports(userByEmail: Map<string, string>) {
+  console.log("Seeding monthly reports…");
+
+  for (const row of SEED_REPORTS) {
+    const tcUserId = userByEmail.get(row.tcEmail);
+    if (!tcUserId) throw new Error(`Missing seed TC for ${row.tcEmail}`);
+
+    const history = row.history.map((event) => ({
+      id: event.id,
+      at: event.at,
+      byUserId: userByEmail.get(event.byEmail) ?? event.byEmail,
+      action: event.action,
+      status: event.status,
+      notes: event.notes,
+    }));
+
+    await prisma.monthlyReport.upsert({
+      where: { id: row.id },
+      create: {
+        id: row.id,
+        tcUserId,
+        period: row.period,
+        status: row.status,
+        deadline: new Date(`${row.deadline}T00:00:00.000Z`),
+        submittedAt: row.submittedAt ? new Date(row.submittedAt) : null,
+        territorySnapshotJson: row.territorySnapshot,
+        kpiActualsJson: row.kpiActuals,
+        narrativeJson: row.narrative,
+        agentSnapshotJson: [],
+        historyJson: history,
+        reviewNotes: row.reviewNotes ?? null,
+      },
+      update: {
+        tcUserId,
+        period: row.period,
+        status: row.status,
+        deadline: new Date(`${row.deadline}T00:00:00.000Z`),
+        submittedAt: row.submittedAt ? new Date(row.submittedAt) : null,
+        territorySnapshotJson: row.territorySnapshot,
+        kpiActualsJson: row.kpiActuals,
+        narrativeJson: row.narrative,
+        historyJson: history,
+        reviewNotes: row.reviewNotes ?? null,
+      },
+    });
+    console.log(`  ✓ ${row.id} (${row.status})`);
+  }
+
+  console.log("Seeding scorecards…");
+  for (const row of SEED_SCORECARDS) {
+    const tcUserId = userByEmail.get(row.tcEmail);
+    if (!tcUserId) throw new Error(`Missing seed TC for ${row.tcEmail}`);
+    const evaluatorUserId = row.evaluatorEmail
+      ? userByEmail.get(row.evaluatorEmail) ?? null
+      : null;
+    const decision = row.decision ? decisionFromApi(row.decision) : null;
+
+    await prisma.scorecard.upsert({
+      where: { id: row.id },
+      create: {
+        id: row.id,
+        monthlyReportId: row.monthlyReportId,
+        tcUserId,
+        period: row.period,
+        status: row.status,
+        templateVersion: row.templateVersion,
+        criteriaJson: row.criteria,
+        overallComment: row.overallComment,
+        decision: decision ?? null,
+        weightedTotal: row.weightedTotal,
+        evaluatorUserId,
+        submittedAt: row.submittedAt ? new Date(row.submittedAt) : null,
+        updatedAt: new Date(row.updatedAt),
+      },
+      update: {
+        monthlyReportId: row.monthlyReportId,
+        tcUserId,
+        period: row.period,
+        status: row.status,
+        templateVersion: row.templateVersion,
+        criteriaJson: row.criteria,
+        overallComment: row.overallComment,
+        decision: decision ?? null,
+        weightedTotal: row.weightedTotal,
+        evaluatorUserId,
+        submittedAt: row.submittedAt ? new Date(row.submittedAt) : null,
+        updatedAt: new Date(row.updatedAt),
+      },
+    });
+    console.log(`  ✓ ${row.id} (${row.status})`);
+  }
 }
 
 main()

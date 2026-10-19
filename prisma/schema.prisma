@@ -1,4 +1,4 @@
-// SAMU Prisma schema — Phase B11 adds fraud review workflow on FraudFlag.
+// SAMU Prisma schema — Phase B12 adds monthly reports + scorecards.
 // Keep this file the single source of DB truth.
 
 generator client {
@@ -158,6 +158,28 @@ enum FraudStatus {
   dismissed
 }
 
+enum ReportStatus {
+  draft
+  submitted
+  under_review
+  changes_requested
+  resubmitted
+  reviewed
+  evaluated
+}
+
+enum ScorecardStatus {
+  draft
+  submitted
+}
+
+enum ScorecardDecision {
+  Outstanding
+  MeetsExpectations  @map("Meets expectations")
+  NeedsImprovement   @map("Needs improvement")
+  Unsatisfactory
+}
+
 model User {
   id             String     @id @default(cuid())
   email          String     @unique
@@ -187,6 +209,9 @@ model User {
   visits                Visit[]               @relation("VisitTc")
   fraudFlagsReviewed    FraudFlag[]           @relation("FraudReviewer")
   fraudFlagsAssigned    FraudFlag[]           @relation("FraudAssignee")
+  monthlyReports        MonthlyReport[]       @relation("ReportTc")
+  scorecards            Scorecard[]           @relation("ScorecardTc")
+  scorecardsEvaluated   Scorecard[]           @relation("ScorecardEvaluator")
 
   @@index([role])
   @@index([status])
@@ -570,4 +595,58 @@ model FraudFlag {
   @@index([detectedAt])
   @@index([assignedReviewerId])
   @@map("fraud_flags")
+}
+
+/// TC monthly narrative + KPI snapshot for Head Office review.
+model MonthlyReport {
+  id                     String       @id
+  tcUserId               String       @map("tc_user_id")
+  period                 String
+  status                 ReportStatus @default(draft)
+  deadline               DateTime     @db.Date
+  submittedAt            DateTime?    @map("submitted_at")
+  territorySnapshotJson  Json         @default("[]") @map("territory_snapshot_json")
+  kpiActualsJson         Json         @default("{}") @map("kpi_actuals_json")
+  narrativeJson          Json         @default("{}") @map("narrative_json")
+  agentSnapshotJson      Json         @default("[]") @map("agent_snapshot_json")
+  historyJson            Json         @default("[]") @map("history_json")
+  reviewNotes            String?      @map("review_notes")
+  createdAt              DateTime     @default(now()) @map("created_at")
+  updatedAt              DateTime     @updatedAt @map("updated_at")
+
+  tcUser    User       @relation("ReportTc", fields: [tcUserId], references: [id], onDelete: Restrict)
+  scorecard Scorecard?
+
+  @@unique([tcUserId, period])
+  @@index([status])
+  @@index([period])
+  @@index([deadline])
+  @@map("monthly_reports")
+}
+
+/// Head Office evaluation of a submitted monthly report.
+model Scorecard {
+  id                String             @id
+  monthlyReportId   String             @unique @map("monthly_report_id")
+  tcUserId          String             @map("tc_user_id")
+  period            String
+  status            ScorecardStatus    @default(draft)
+  templateVersion   String             @default("v1-2026") @map("template_version")
+  criteriaJson      Json               @map("criteria_json")
+  overallComment    String             @default("") @map("overall_comment")
+  decision          ScorecardDecision?
+  weightedTotal     Float              @default(0) @map("weighted_total")
+  evaluatorUserId   String?            @map("evaluator_user_id")
+  submittedAt       DateTime?          @map("submitted_at")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+
+  monthlyReport MonthlyReport @relation(fields: [monthlyReportId], references: [id], onDelete: Cascade)
+  tcUser        User          @relation("ScorecardTc", fields: [tcUserId], references: [id], onDelete: Restrict)
+  evaluator     User?         @relation("ScorecardEvaluator", fields: [evaluatorUserId], references: [id], onDelete: SetNull)
+
+  @@index([tcUserId])
+  @@index([period])
+  @@index([status])
+  @@map("scorecards")
 }
