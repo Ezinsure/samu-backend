@@ -7,6 +7,7 @@ import { env } from "./config/env.js";
 import { logger } from "./lib/logger.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { notFoundHandler } from "./middleware/not-found.js";
+import { agentsRouter } from "./modules/agents/agents.routes.js";
 import { authRouter } from "./modules/auth/auth.routes.js";
 import { healthRouter } from "./modules/health/health.routes.js";
 import { territoriesRouter } from "./modules/territories/territories.routes.js";
@@ -51,6 +52,7 @@ export function createApp() {
   });
   api.use("/auth", authRouter);
   api.use("/territories", territoriesRouter);
+  api.use("/agents", agentsRouter);
   app.use("/api/v1", api);
 
   app.use(notFoundHandler);

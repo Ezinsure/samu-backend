@@ -116,7 +116,19 @@ Invoke-RestMethod -Uri http://localhost:4000/api/v1/auth/me -WebSession $s
 | `GET` | `/api/v1/territories/:id/workspace` | Detail + assignment history (`agents` empty until B3) |
 | `POST` | `/api/v1/territories/:id/assign` | Admin only — body `{ "tcUserId": "…" }` (districts only) |
 
-Seed includes Rwanda sample provinces/districts/sectors/cells (stable ids matching the demo frontend) and assigns Kigali districts → `tc.kigali@…`, Southern → `tc.south@…`.
+Seed includes Rwanda sample provinces/districts/sectors/cells (stable ids matching the demo frontend) and assigns Kigali districts → `tc.kigali@…`, Southern → `tc.south@…`. Assigning a district also reassigns agents in that district.
+
+## Agents (Phase B3)
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/api/v1/agents/filters` | Provinces, districts, statuses, coordinators (TC-scoped) |
+| `GET` | `/api/v1/agents` | Paginated list — `page`, `pageSize`, `search`, `province`, `district`, `status`, `compliance`, `tcUserId`, `sortBy`, `sortDir` |
+| `GET` | `/api/v1/agents/:id` | Detail + assignment history (`visits` empty until B10) |
+| `POST` | `/api/v1/agents` | Admin create |
+| `PATCH` | `/api/v1/agents/:id` | Admin update (rotates TC assignment history) |
+
+Seed loads 40 demo agents (same ids as the frontend). `agent.demo@solektra.rw` is linked to `agent-001`.
 
 ## Scripts
 
@@ -128,7 +140,7 @@ Seed includes Rwanda sample provinces/districts/sectors/cells (stable ids matchi
 | `npm run lint` | Typecheck (`tsc --noEmit`) |
 | `npm run prisma:migrate` | Create/apply migrations (dev) |
 | `npm run prisma:deploy` | Apply migrations (CI/prod) |
-| `npm run db:seed` | Seed users + geo tree + TC assignments |
+| `npm run db:seed` | Seed users + geo tree + TC assignments + agents |
 
 ## Project structure
 
@@ -151,6 +163,7 @@ backend/
 | B0 — Scaffold + Docker + health | Complete |
 | B1 — Auth + seed users | Complete |
 | B2 — Territories | Complete |
-| B3 — Agents | Next |
+| B3 — Agents | Complete |
+| B4 — COAP Leads | Next |
 
 See `../DOCs/SAMU-Backend-Implementation-Phases.md`.

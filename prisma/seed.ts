@@ -1,5 +1,6 @@
 import { PrismaClient, type TerritoryType, type UserRole } from "@prisma/client";
 import argon2 from "argon2";
+import { SEED_AGENTS } from "./seed-agents-data.js";
 
 const prisma = new PrismaClient();
 
@@ -225,12 +226,100 @@ async function seedTerritories(userByEmail: Map<string, string>) {
   }
 }
 
+async function seedAgents(userByEmail: Map<string, string>) {
+  console.log("Seeding agents…");
+  const now = new Date();
+
+  for (const row of SEED_AGENTS) {
+    const tcUserId = userByEmail.get(row.tcEmail);
+    if (!tcUserId) {
+      throw new Error(`Missing seed TC for ${row.tcEmail}`);
+    }
+
+    const status = row.status ?? "Active";
+    const agent = await prisma.agent.upsert({
+      where: { id: row.id },
+      create: {
+        id: row.id,
+        code: row.code,
+        name: row.name,
+        phone: row.phone,
+        nidMasked: `1********${row.phone.replace(/\D/g, "").slice(-3)}`,
+        nidVerified: status !== "PendingVerification",
+        status,
+        geoProvince: row.province,
+        geoDistrict: row.district,
+        geoSector: row.sector,
+        geoCell: row.cell,
+        lat: row.lat,
+        lng: row.lng,
+        accuracyMeters: 5,
+        tcUserId,
+        servicesJson: row.services ?? {},
+        lastVisitAt: row.lastVisitAt ? new Date(row.lastVisitAt) : null,
+        compliance: row.compliance,
+        clientsRegistered: row.clientsRegistered ?? 0,
+        recruitedThisMonth: row.recruitedThisMonth ?? false,
+        reactivatedThisMonth: row.reactivatedThisMonth ?? false,
+        createdAt: new Date("2025-11-01T08:00:00.000Z"),
+      },
+      update: {
+        code: row.code,
+        name: row.name,
+        phone: row.phone,
+        nidMasked: `1********${row.phone.replace(/\D/g, "").slice(-3)}`,
+        nidVerified: status !== "PendingVerification",
+        status,
+        geoProvince: row.province,
+        geoDistrict: row.district,
+        geoSector: row.sector,
+        geoCell: row.cell,
+        lat: row.lat,
+        lng: row.lng,
+        tcUserId,
+        servicesJson: row.services ?? {},
+        lastVisitAt: row.lastVisitAt ? new Date(row.lastVisitAt) : null,
+        compliance: row.compliance,
+        clientsRegistered: row.clientsRegistered ?? 0,
+        recruitedThisMonth: row.recruitedThisMonth ?? false,
+        reactivatedThisMonth: row.reactivatedThisMonth ?? false,
+      },
+    });
+
+    await prisma.agentAssignment.updateMany({
+      where: { agentId: agent.id, active: true },
+      data: { active: false, endedAt: now },
+    });
+    await prisma.agentAssignment.create({
+      data: {
+        agentId: agent.id,
+        tcUserId,
+        startedAt: now,
+        active: true,
+      },
+    });
+
+    console.log(`  ✓ ${agent.code} (${agent.name})`);
+  }
+
+  // Link demo AGENT portal user to agent-001 when present.
+  const demoAgentUserId = userByEmail.get("agent.demo@solektra.rw");
+  if (demoAgentUserId) {
+    await prisma.user.update({
+      where: { id: demoAgentUserId },
+      data: { agentId: "agent-001" },
+    });
+    console.log("  ✓ Linked agent.demo@solektra.rw → agent-001");
+  }
+}
+
 /**
- * Idempotent seed: users, geo tree, and active district TC assignments.
+ * Idempotent seed: users, geo tree, TC assignments, and agents.
  */
 async function main() {
   const userByEmail = await seedUsers();
   await seedTerritories(userByEmail);
+  await seedAgents(userByEmail);
   console.log("Seed complete.");
 }
 

@@ -1,4 +1,4 @@
-// SAMU Prisma schema — Phase B2 adds geo territories + TC assignments.
+// SAMU Prisma schema — Phase B3 adds agents + TC assignment history.
 // Keep this file the single source of DB truth.
 
 generator client {
@@ -42,6 +42,19 @@ enum TerritoryType {
   cell
 }
 
+enum AgentStatus {
+  Active
+  Inactive
+  Suspended
+  PendingVerification @map("Pending verification")
+}
+
+enum ComplianceTone {
+  green
+  yellow
+  red
+}
+
 model User {
   id             String     @id @default(cuid())
   email          String     @unique
@@ -51,15 +64,18 @@ model User {
   role           UserRole
   status         UserStatus @default(pending)
   avatarInitials String?    @map("avatar_initials")
-  /// Set in Phase B3 when Agent model exists (AGENT role link).
-  agentId        String?    @map("agent_id")
+  /// Optional link for AGENT-role portal users (set when agent account is provisioned).
+  agentId        String?    @unique @map("agent_id")
   lastLoginAt    DateTime?  @map("last_login_at")
   createdAt      DateTime   @default(now()) @map("created_at")
   updatedAt      DateTime   @updatedAt @map("updated_at")
 
+  agent                 Agent?                @relation("UserPortalAgent", fields: [agentId], references: [id], onDelete: SetNull)
   refreshTokens         RefreshToken[]
   territoryAssignments  TerritoryAssignment[]
   activeTerritories     Territory[]           @relation("TerritoryActiveTc")
+  coordinatedAgents     Agent[]               @relation("AgentTc")
+  agentAssignments      AgentAssignment[]     @relation("AgentAssignmentTc")
 
   @@index([role])
   @@index([status])
@@ -93,9 +109,9 @@ model Territory {
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
 
-  parent     Territory?            @relation("TerritoryTree", fields: [parentId], references: [id], onDelete: Restrict)
-  children   Territory[]           @relation("TerritoryTree")
-  activeTc   User?                 @relation("TerritoryActiveTc", fields: [activeTcUserId], references: [id], onDelete: SetNull)
+  parent      Territory?            @relation("TerritoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children    Territory[]           @relation("TerritoryTree")
+  activeTc    User?                 @relation("TerritoryActiveTc", fields: [activeTcUserId], references: [id], onDelete: SetNull)
   assignments TerritoryAssignment[]
 
   @@index([parentId])
@@ -120,4 +136,62 @@ model TerritoryAssignment {
   @@index([tcUserId])
   @@index([active])
   @@map("territory_assignments")
+}
+
+model Agent {
+  id                     String         @id
+  code                   String         @unique
+  name                   String
+  phone                  String
+  email                  String?
+  nidMasked              String         @map("nid_masked")
+  nidVerified            Boolean        @default(false) @map("nid_verified")
+  status                 AgentStatus    @default(Active)
+  geoProvince            String         @map("geo_province")
+  geoDistrict            String         @map("geo_district")
+  geoSector              String         @map("geo_sector")
+  geoCell                String         @map("geo_cell")
+  lat                    Float
+  lng                    Float
+  accuracyMeters         Float?         @map("accuracy_meters")
+  tcUserId               String         @map("tc_user_id")
+  /// Service readiness checklist (irembo, bk, internet, cooking, …).
+  servicesJson           Json           @map("services_json")
+  lastVisitAt            DateTime?      @map("last_visit_at")
+  compliance             ComplianceTone @default(yellow)
+  clientsRegistered      Int            @default(0) @map("clients_registered")
+  recruitedThisMonth     Boolean        @default(false) @map("recruited_this_month")
+  reactivatedThisMonth   Boolean        @default(false) @map("reactivated_this_month")
+  createdAt              DateTime       @default(now()) @map("created_at")
+  updatedAt              DateTime       @updatedAt @map("updated_at")
+
+  tcUser      User              @relation("AgentTc", fields: [tcUserId], references: [id], onDelete: Restrict)
+  assignments AgentAssignment[]
+  portalUsers User[]            @relation("UserPortalAgent")
+
+  @@index([tcUserId])
+  @@index([status])
+  @@index([compliance])
+  @@index([geoProvince])
+  @@index([geoDistrict])
+  @@index([name])
+  @@map("agents")
+}
+
+model AgentAssignment {
+  id        String    @id @default(cuid())
+  agentId   String    @map("agent_id")
+  tcUserId  String    @map("tc_user_id")
+  startedAt DateTime  @default(now()) @map("started_at")
+  endedAt   DateTime? @map("ended_at")
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  agent  Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  tcUser User  @relation("AgentAssignmentTc", fields: [tcUserId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@index([tcUserId])
+  @@index([active])
+  @@map("agent_assignments")
 }

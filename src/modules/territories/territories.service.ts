@@ -1,4 +1,4 @@
-import type { Territory, TerritoryType } from "@prisma/client";
+import { Prisma, type Territory, type TerritoryType } from "@prisma/client";
 import { errors } from "../../lib/errors.js";
 import { logger } from "../../lib/logger.js";
 import { prisma } from "../../lib/prisma.js";
@@ -8,6 +8,8 @@ import {
   isNationalReader,
 } from "../../lib/tc-scope.js";
 import type { AuthUser } from "../../types/express.js";
+import { reassignAgentsInDistrict } from "../agents/agents.service.js";
+import { toPublicAgent, type PublicAgent } from "../agents/agents.mapper.js";
 
 export type PublicTerritory = {
   id: string;
@@ -38,8 +40,7 @@ export type TerritoryWorkspace = {
   territory: PublicTerritory;
   parentName?: string;
   tcName?: string;
-  /** Agents land in Phase B3 — empty until then. */
-  agents: [];
+  agents: Array<PublicAgent & { tcName: string }>;
   childSummary: Array<{
     id: string;
     name: string;
@@ -48,6 +49,14 @@ export type TerritoryWorkspace = {
     tcName?: string;
   }>;
   history: TerritoryAssignmentView[];
+};
+
+type AgentGeoRow = {
+  geoProvince: string;
+  geoDistrict: string;
+  geoSector: string;
+  geoCell: string;
+  tcUserId: string;
 };
 
 function toPublic(t: Territory): PublicTerritory {
@@ -62,6 +71,26 @@ function toPublic(t: Territory): PublicTerritory {
 
 function canManageTerritories(role: AuthUser["role"]): boolean {
   return role === "ADMIN";
+}
+
+function countAgentsForTerritory(
+  territory: { id: string; name: string; type: TerritoryType; parentId: string | null },
+  allTerritories: Array<{ id: string; name: string; type: TerritoryType; parentId: string | null }>,
+  agents: AgentGeoRow[],
+): number {
+  if (territory.type === "province") {
+    const districtNames = allTerritories
+      .filter((item) => item.parentId === territory.id && item.type === "district")
+      .map((item) => item.name);
+    return agents.filter((agent) => districtNames.includes(agent.geoDistrict)).length;
+  }
+  if (territory.type === "district") {
+    return agents.filter((agent) => agent.geoDistrict === territory.name).length;
+  }
+  if (territory.type === "sector") {
+    return agents.filter((agent) => agent.geoSector === territory.name).length;
+  }
+  return agents.filter((agent) => agent.geoCell === territory.name).length;
 }
 
 /**
@@ -94,9 +123,30 @@ export async function getTerritoryTree(viewer: AuthUser): Promise<{
     const allowed = await getTcScopedTerritoryIds(viewer.id);
     visible = all.filter((t) => allowed.has(t.id));
   } else if (!isNationalReader(viewer.role) && viewer.role !== "ADMIN") {
-    // AGENT and other non-national roles: empty tree for now.
     visible = [];
   }
+
+  const agentWhere =
+    viewer.role === "TERRITORY_COORDINATOR"
+      ? { tcUserId: viewer.id }
+      : {};
+  const agents = await prisma.agent.findMany({
+    where: agentWhere,
+    select: {
+      geoProvince: true,
+      geoDistrict: true,
+      geoSector: true,
+      geoCell: true,
+      tcUserId: true,
+    },
+  });
+
+  const flatTerritories = all.map((t) => ({
+    id: t.id,
+    name: t.name,
+    type: t.type,
+    parentId: t.parentId,
+  }));
 
   const byParent = new Map<string | null, typeof visible>();
   for (const t of visible) {
@@ -111,13 +161,15 @@ export async function getTerritoryTree(viewer: AuthUser): Promise<{
     return nodes.map((t) => ({
       ...toPublic(t),
       tcName: t.activeTc?.name,
-      agentCount: 0,
+      agentCount: countAgentsForTerritory(
+        { id: t.id, name: t.name, type: t.type, parentId: t.parentId },
+        flatTerritories,
+        agents,
+      ),
       children: build(t.id),
     }));
   };
 
-  // Roots are provinces (parentId null). If a TC only sees a subtree, still
-  // attach from null so provinces appear when included in the allowed set.
   return {
     tree: build(null),
     coordinators: await listCoordinators(),
@@ -126,7 +178,7 @@ export async function getTerritoryTree(viewer: AuthUser): Promise<{
 }
 
 /**
- * Detail workspace for one territory (agents deferred to B3).
+ * Detail workspace for one territory including scoped agents.
  */
 export async function getTerritoryWorkspace(
   territoryId: string,
@@ -154,16 +206,70 @@ export async function getTerritoryWorkspace(
     throw errors.notFound("Territory not found");
   }
 
+  const allTerritories = await prisma.territory.findMany({
+    select: { id: true, name: true, type: true, parentId: true },
+  });
+
+  const agentWhere: Prisma.AgentWhereInput = {};
+  if (viewer.role === "TERRITORY_COORDINATOR") {
+    agentWhere.tcUserId = viewer.id;
+  }
+
+  if (territory.type === "province") {
+    const districtNames = allTerritories
+      .filter((item) => item.parentId === territory.id && item.type === "district")
+      .map((item) => item.name);
+    agentWhere.geoDistrict = { in: districtNames };
+  } else if (territory.type === "district") {
+    agentWhere.geoDistrict = territory.name;
+  } else if (territory.type === "sector") {
+    agentWhere.geoSector = territory.name;
+  } else {
+    agentWhere.geoCell = territory.name;
+  }
+
+  const agentRows = await prisma.agent.findMany({
+    where: agentWhere,
+    include: { tcUser: { select: { name: true } } },
+    orderBy: { name: "asc" },
+  });
+
+  const countWhere: Prisma.AgentWhereInput =
+    viewer.role === "TERRITORY_COORDINATOR" ? { tcUserId: viewer.id } : {};
+
+  const allAgentsForCounts = await prisma.agent.findMany({
+    where: countWhere,
+    select: {
+      geoProvince: true,
+      geoDistrict: true,
+      geoSector: true,
+      geoCell: true,
+      tcUserId: true,
+    },
+  });
+
   return {
     territory: toPublic(territory),
     parentName: territory.parent?.name,
     tcName: territory.activeTc?.name,
-    agents: [],
+    agents: agentRows.map((row) => ({
+      ...toPublicAgent(row, row.tcUser.name),
+      tcName: row.tcUser.name,
+    })),
     childSummary: territory.children.map((child) => ({
       id: child.id,
       name: child.name,
       type: child.type,
-      agentCount: 0,
+      agentCount: countAgentsForTerritory(
+        {
+          id: child.id,
+          name: child.name,
+          type: child.type,
+          parentId: child.parentId,
+        },
+        allTerritories,
+        allAgentsForCounts,
+      ),
       tcName: child.activeTc?.name,
     })),
     history: territory.assignments.map((a) => ({
@@ -181,8 +287,8 @@ export async function getTerritoryWorkspace(
 
 /**
  * Assign / reassign a TC to a district. Admin only.
- * Closes prior active assignment history rows and updates denormalized TC.
- * Agent reassignment is Phase B3.
+ * Closes prior territory assignment, updates denormalized TC,
+ * and reassigns agents in that district to the new TC.
  */
 export async function assignTerritoryCoordinator(
   territoryId: string,
@@ -221,7 +327,7 @@ export async function assignTerritoryCoordinator(
   const now = new Date();
   const previousTc = territory.activeTcUserId;
 
-  await prisma.$transaction(async (tx) => {
+  const agentCount = await prisma.$transaction(async (tx) => {
     await tx.territoryAssignment.updateMany({
       where: { territoryId, active: true },
       data: { active: false, endedAt: now },
@@ -240,6 +346,8 @@ export async function assignTerritoryCoordinator(
       where: { id: territoryId },
       data: { activeTcUserId: tcUserId },
     });
+
+    return reassignAgentsInDistrict(territory.name, tcUserId, tx);
   });
 
   logger.info(
@@ -248,6 +356,7 @@ export async function assignTerritoryCoordinator(
       previousTcUserId: previousTc,
       tcUserId,
       actorUserId: actor.id,
+      agentsUpdated: agentCount,
     },
     "Territory coordinator assigned",
   );
