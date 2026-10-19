@@ -1,4 +1,4 @@
-// SAMU Prisma schema — Phase B6 adds COAP onboarding cases.
+// SAMU Prisma schema — Phase B7 adds COAP sales.
 // Keep this file the single source of DB truth.
 
 generator client {
@@ -104,6 +104,15 @@ enum OnboardingStatus {
   cancelled
 }
 
+enum SaleProductCategory {
+  internet_4g
+  internet_starlink
+  smartphone
+  induction_cooker
+  insurance_policy
+  other
+}
+
 model User {
   id             String     @id @default(cuid())
   email          String     @unique
@@ -128,6 +137,7 @@ model User {
   leads                 Lead[]                @relation("LeadTc")
   fieldActivities       FieldActivity[]       @relation("FieldActivityTc")
   onboardingCases       OnboardingCase[]      @relation("OnboardingTc")
+  sales                 Sale[]                @relation("SaleTc")
 
   @@index([role])
   @@index([status])
@@ -271,6 +281,7 @@ model Lead {
   tcUser          User             @relation("LeadTc", fields: [tcUserId], references: [id], onDelete: Restrict)
   fieldActivities FieldActivity[]
   onboardingCases OnboardingCase[]
+  sales           Sale[]
 
   @@index([tcUserId])
   @@index([serviceLine])
@@ -337,6 +348,7 @@ model OnboardingCase {
   tcUser User   @relation("OnboardingTc", fields: [tcUserId], references: [id], onDelete: Restrict)
   lead   Lead?  @relation(fields: [leadId], references: [id], onDelete: SetNull)
   agent  Agent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  sales  Sale[]
 
   @@index([tcUserId])
   @@index([serviceLine])
@@ -347,4 +359,41 @@ model OnboardingCase {
   @@index([agentId])
   @@index([updatedAt])
   @@map("onboarding_cases")
+}
+
+/// COAP sale — product sold through a TC territory pipeline.
+model Sale {
+  id                 String              @id
+  tcUserId           String              @map("tc_user_id")
+  serviceLine        ServiceLine         @map("service_line")
+  productCategory    SaleProductCategory @map("product_category")
+  productName        String              @map("product_name")
+  quantity           Int                 @default(1)
+  amountRwf          Int                 @map("amount_rwf")
+  customerName       String              @map("customer_name")
+  customerPhone      String              @map("customer_phone")
+  leadId             String?             @map("lead_id")
+  onboardingId       String?             @map("onboarding_id")
+  depositRwf         Int?                @map("deposit_rwf")
+  installmentMonths  Int?                @map("installment_months")
+  geoProvince        String              @map("geo_province")
+  geoDistrict        String              @map("geo_district")
+  geoSector          String              @map("geo_sector")
+  soldAt             DateTime            @map("sold_at")
+  notes              String?
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+
+  tcUser     User            @relation("SaleTc", fields: [tcUserId], references: [id], onDelete: Restrict)
+  lead       Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  onboarding OnboardingCase? @relation(fields: [onboardingId], references: [id], onDelete: SetNull)
+
+  @@index([tcUserId])
+  @@index([serviceLine])
+  @@index([productCategory])
+  @@index([geoDistrict])
+  @@index([soldAt])
+  @@index([leadId])
+  @@index([onboardingId])
+  @@map("sales")
 }

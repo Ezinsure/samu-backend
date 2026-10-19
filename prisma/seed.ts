@@ -4,6 +4,7 @@ import { SEED_AGENTS } from "./seed-agents-data.js";
 import { SEED_ACTIVITIES } from "./seed-activities-data.js";
 import { SEED_LEADS } from "./seed-leads-data.js";
 import { SEED_ONBOARDING } from "./seed-onboarding-data.js";
+import { SEED_SALES } from "./seed-sales-data.js";
 
 const prisma = new PrismaClient();
 
@@ -467,8 +468,64 @@ async function seedOnboarding(userByEmail: Map<string, string>) {
   }
 }
 
+async function seedSales(userByEmail: Map<string, string>) {
+  console.log("Seeding COAP sales…");
+
+  for (const row of SEED_SALES) {
+    const tcUserId = userByEmail.get(row.tcEmail);
+    if (!tcUserId) {
+      throw new Error(`Missing seed TC for ${row.tcEmail}`);
+    }
+
+    const sale = await prisma.sale.upsert({
+      where: { id: row.id },
+      create: {
+        id: row.id,
+        tcUserId,
+        serviceLine: row.serviceLine,
+        productCategory: row.productCategory,
+        productName: row.productName,
+        quantity: row.quantity,
+        amountRwf: row.amountRwf,
+        customerName: row.customerName,
+        customerPhone: row.customerPhone,
+        leadId: row.leadId ?? null,
+        onboardingId: row.onboardingId ?? null,
+        depositRwf: row.depositRwf ?? null,
+        installmentMonths: row.installmentMonths ?? null,
+        geoProvince: row.province,
+        geoDistrict: row.district,
+        geoSector: row.sector,
+        soldAt: new Date(row.soldAt),
+        notes: row.notes ?? null,
+      },
+      update: {
+        tcUserId,
+        serviceLine: row.serviceLine,
+        productCategory: row.productCategory,
+        productName: row.productName,
+        quantity: row.quantity,
+        amountRwf: row.amountRwf,
+        customerName: row.customerName,
+        customerPhone: row.customerPhone,
+        leadId: row.leadId ?? null,
+        onboardingId: row.onboardingId ?? null,
+        depositRwf: row.depositRwf ?? null,
+        installmentMonths: row.installmentMonths ?? null,
+        geoProvince: row.province,
+        geoDistrict: row.district,
+        geoSector: row.sector,
+        soldAt: new Date(row.soldAt),
+        notes: row.notes ?? null,
+      },
+    });
+
+    console.log(`  ✓ ${sale.id} (${sale.productName})`);
+  }
+}
+
 /**
- * Idempotent seed: users, geo, agents, leads, activities, onboarding.
+ * Idempotent seed: users, geo, agents, COAP leads → sales.
  */
 async function main() {
   const userByEmail = await seedUsers();
@@ -477,6 +534,7 @@ async function main() {
   await seedLeads(userByEmail);
   await seedActivities(userByEmail);
   await seedOnboarding(userByEmail);
+  await seedSales(userByEmail);
   console.log("Seed complete.");
 }
 
