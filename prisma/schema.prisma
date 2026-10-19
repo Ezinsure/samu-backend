@@ -1,5 +1,5 @@
-// SAMU Prisma schema — Phase B0 bootstrap.
-// Auth/users models land in Phase B1. Keep this file the single source of DB truth.
+// SAMU Prisma schema — Phase B1 adds identity (users + refresh tokens).
+// Keep this file the single source of DB truth.
 
 generator client {
   provider = "prisma-client-js"
@@ -19,4 +19,55 @@ model SchemaMeta {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("schema_meta")
+}
+
+enum UserRole {
+  ADMIN
+  OPERATIONS_MANAGER
+  MD_VIEWER
+  TERRITORY_COORDINATOR
+  AGENT
+}
+
+enum UserStatus {
+  active
+  pending
+  disabled
+}
+
+model User {
+  id             String     @id @default(cuid())
+  email          String     @unique
+  phone          String?
+  name           String
+  passwordHash   String     @map("password_hash")
+  role           UserRole
+  status         UserStatus @default(pending)
+  avatarInitials String?    @map("avatar_initials")
+  /// Set in Phase B3 when Agent model exists (AGENT role link).
+  agentId        String?    @map("agent_id")
+  lastLoginAt    DateTime?  @map("last_login_at")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  refreshTokens RefreshToken[]
+
+  @@index([role])
+  @@index([status])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("refresh_tokens")
 }

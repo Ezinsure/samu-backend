@@ -15,8 +15,12 @@ const envSchema = z.object({
   FRONTEND_ORIGIN: z.string().url().default("http://localhost:3000"),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   REDIS_URL: z.string().default("redis://localhost:6379"),
-  JWT_ACCESS_SECRET: z.string().min(32).optional(),
-  JWT_REFRESH_SECRET: z.string().min(32).optional(),
+  /** Access JWT signing secret — min 32 chars (see .env.example). */
+  JWT_ACCESS_SECRET: z.string().min(32, "JWT_ACCESS_SECRET must be ≥ 32 characters"),
+  /** Reserved for asymmetric/refresh JWT schemes; refresh tokens are opaque today. */
+  JWT_REFRESH_SECRET: z.string().min(32, "JWT_REFRESH_SECRET must be ≥ 32 characters"),
+  JWT_ACCESS_TTL: z.string().default("15m"),
+  JWT_REFRESH_TTL: z.string().default("7d"),
 });
 
 const parsed = envSchema.safeParse(process.env);

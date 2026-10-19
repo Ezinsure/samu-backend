@@ -1,11 +1,13 @@
 import express from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
 import { env } from "./config/env.js";
 import { logger } from "./lib/logger.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { notFoundHandler } from "./middleware/not-found.js";
+import { authRouter } from "./modules/auth/auth.routes.js";
 import { healthRouter } from "./modules/health/health.routes.js";
 
 /**
@@ -24,6 +26,7 @@ export function createApp() {
     }),
   );
   app.use(express.json({ limit: "1mb" }));
+  app.use(cookieParser());
   app.use(
     pinoHttp({
       logger,
@@ -45,6 +48,7 @@ export function createApp() {
       },
     });
   });
+  api.use("/auth", authRouter);
   app.use("/api/v1", api);
 
   app.use(notFoundHandler);
