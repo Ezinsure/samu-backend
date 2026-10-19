@@ -152,6 +152,17 @@ Seed loads 8 demo leads matching the frontend COAP sample.
 
 Seed loads 6 demo activities (linked to seed leads where applicable).
 
+## Onboarding — COAP (Phase B6)
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/api/v1/onboarding` | Paginated — `search`, `serviceLine`, `status`, `tcUserId` |
+| `GET` | `/api/v1/onboarding/:id` | Single case (TC-scoped) |
+| `POST` | `/api/v1/onboarding` | Admin / Ops / TC create |
+| `PATCH` | `/api/v1/onboarding/:id` | Admin / Ops / owning TC; sets `completedAt` when status → completed |
+
+Seed loads 6 demo onboarding cases linked to seed leads.
+
 ## Scripts
 
 | Command | Description |
@@ -162,7 +173,7 @@ Seed loads 6 demo activities (linked to seed leads where applicable).
 | `npm run lint` | Typecheck (`tsc --noEmit`) |
 | `npm run prisma:migrate` | Create/apply migrations (dev) |
 | `npm run prisma:deploy` | Apply migrations (CI/prod) |
-| `npm run db:seed` | Seed users + geo + agents + leads + field activities |
+| `npm run db:seed` | Seed users + geo + agents + leads + activities + onboarding |
 
 ## Project structure
 
@@ -188,6 +199,7 @@ backend/
 | B3 — Agents | Complete |
 | B4 — COAP Leads | Complete |
 | B5 — Field activities | Complete |
-| B6 — Onboarding | Next |
+| B6 — Onboarding | Complete |
+| B7 — Sales | Next |
 
 See `../DOCs/SAMU-Backend-Implementation-Phases.md`.

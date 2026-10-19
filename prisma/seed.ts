@@ -3,6 +3,7 @@ import argon2 from "argon2";
 import { SEED_AGENTS } from "./seed-agents-data.js";
 import { SEED_ACTIVITIES } from "./seed-activities-data.js";
 import { SEED_LEADS } from "./seed-leads-data.js";
+import { SEED_ONBOARDING } from "./seed-onboarding-data.js";
 
 const prisma = new PrismaClient();
 
@@ -413,8 +414,61 @@ async function seedActivities(userByEmail: Map<string, string>) {
   }
 }
 
+async function seedOnboarding(userByEmail: Map<string, string>) {
+  console.log("Seeding COAP onboarding cases…");
+
+  for (const row of SEED_ONBOARDING) {
+    const tcUserId = userByEmail.get(row.tcEmail);
+    if (!tcUserId) {
+      throw new Error(`Missing seed TC for ${row.tcEmail}`);
+    }
+
+    const item = await prisma.onboardingCase.upsert({
+      where: { id: row.id },
+      create: {
+        id: row.id,
+        tcUserId,
+        serviceLine: row.serviceLine,
+        kind: row.kind,
+        status: row.status,
+        customerName: row.customerName,
+        customerPhone: row.customerPhone,
+        leadId: row.leadId ?? null,
+        agentId: row.agentId ?? null,
+        geoProvince: row.province,
+        geoDistrict: row.district,
+        geoSector: row.sector,
+        stageLabel: row.stageLabel,
+        notes: row.notes ?? null,
+        startedAt: new Date(row.startedAt),
+        updatedAt: new Date(row.updatedAt),
+        completedAt: row.completedAt ? new Date(row.completedAt) : null,
+      },
+      update: {
+        tcUserId,
+        serviceLine: row.serviceLine,
+        kind: row.kind,
+        status: row.status,
+        customerName: row.customerName,
+        customerPhone: row.customerPhone,
+        leadId: row.leadId ?? null,
+        agentId: row.agentId ?? null,
+        geoProvince: row.province,
+        geoDistrict: row.district,
+        geoSector: row.sector,
+        stageLabel: row.stageLabel,
+        notes: row.notes ?? null,
+        updatedAt: new Date(row.updatedAt),
+        completedAt: row.completedAt ? new Date(row.completedAt) : null,
+      },
+    });
+
+    console.log(`  ✓ ${item.id} (${item.customerName})`);
+  }
+}
+
 /**
- * Idempotent seed: users, geo, agents, leads, and field activities.
+ * Idempotent seed: users, geo, agents, leads, activities, onboarding.
  */
 async function main() {
   const userByEmail = await seedUsers();
@@ -422,6 +476,7 @@ async function main() {
   await seedAgents(userByEmail);
   await seedLeads(userByEmail);
   await seedActivities(userByEmail);
+  await seedOnboarding(userByEmail);
   console.log("Seed complete.");
 }
 

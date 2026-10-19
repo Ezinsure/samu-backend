@@ -1,4 +1,4 @@
-// SAMU Prisma schema — Phase B5 adds COAP field activities.
+// SAMU Prisma schema — Phase B6 adds COAP onboarding cases.
 // Keep this file the single source of DB truth.
 
 generator client {
@@ -86,6 +86,24 @@ enum FieldActivityType {
   campaign
 }
 
+enum OnboardingKind {
+  customer
+  irembo_agent
+  insurance_agent
+  bk_account
+  internet_activation
+  device_registration
+  cooker_purchase
+}
+
+enum OnboardingStatus {
+  not_started
+  in_progress
+  pending_partner
+  completed
+  cancelled
+}
+
 model User {
   id             String     @id @default(cuid())
   email          String     @unique
@@ -109,6 +127,7 @@ model User {
   agentAssignments      AgentAssignment[]     @relation("AgentAssignmentTc")
   leads                 Lead[]                @relation("LeadTc")
   fieldActivities       FieldActivity[]       @relation("FieldActivityTc")
+  onboardingCases       OnboardingCase[]      @relation("OnboardingTc")
 
   @@index([role])
   @@index([status])
@@ -199,9 +218,10 @@ model Agent {
   updatedAt              DateTime       @updatedAt @map("updated_at")
 
   tcUser      User              @relation("AgentTc", fields: [tcUserId], references: [id], onDelete: Restrict)
-  assignments     AgentAssignment[]
-  portalUsers     User[]            @relation("UserPortalAgent")
-  fieldActivities FieldActivity[]
+  assignments      AgentAssignment[]
+  portalUsers      User[]            @relation("UserPortalAgent")
+  fieldActivities  FieldActivity[]
+  onboardingCases  OnboardingCase[]
 
   @@index([tcUserId])
   @@index([status])
@@ -248,8 +268,9 @@ model Lead {
   createdAt        DateTime       @default(now()) @map("created_at")
   updatedAt        DateTime       @updatedAt @map("updated_at")
 
-  tcUser          User            @relation("LeadTc", fields: [tcUserId], references: [id], onDelete: Restrict)
+  tcUser          User             @relation("LeadTc", fields: [tcUserId], references: [id], onDelete: Restrict)
   fieldActivities FieldActivity[]
+  onboardingCases OnboardingCase[]
 
   @@index([tcUserId])
   @@index([serviceLine])
@@ -291,4 +312,39 @@ model FieldActivity {
   @@index([leadId])
   @@index([agentId])
   @@map("field_activities")
+}
+
+/// COAP onboarding case — customer/agent activation workflow.
+model OnboardingCase {
+  id             String           @id
+  tcUserId       String           @map("tc_user_id")
+  serviceLine    ServiceLine      @map("service_line")
+  kind           OnboardingKind
+  status         OnboardingStatus @default(not_started)
+  customerName   String           @map("customer_name")
+  customerPhone  String           @map("customer_phone")
+  leadId         String?          @map("lead_id")
+  agentId        String?          @map("agent_id")
+  geoProvince    String           @map("geo_province")
+  geoDistrict    String           @map("geo_district")
+  geoSector      String           @map("geo_sector")
+  stageLabel     String           @map("stage_label")
+  notes          String?
+  startedAt      DateTime         @default(now()) @map("started_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+  completedAt    DateTime?        @map("completed_at")
+
+  tcUser User   @relation("OnboardingTc", fields: [tcUserId], references: [id], onDelete: Restrict)
+  lead   Lead?  @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  agent  Agent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  @@index([tcUserId])
+  @@index([serviceLine])
+  @@index([status])
+  @@index([kind])
+  @@index([geoDistrict])
+  @@index([leadId])
+  @@index([agentId])
+  @@index([updatedAt])
+  @@map("onboarding_cases")
 }
