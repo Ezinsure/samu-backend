@@ -211,7 +211,20 @@ GPS-validated visits with photo evidence in MinIO. Fraud **flags** are opened on
 | `POST` | `/api/v1/visits` | Create (Admin/TC); server recomputes GPS distance; optional `Idempotency-Key` |
 | `PATCH` | `/api/v1/visits/:id` | Confirmation / validation / notes (TC cannot change validation) |
 
-Create body requires ≥1 photo ref (`storageKey`, `fileName`, `contentType`, `sizeBytes`) from a prior upload. Threshold: `GPS_DISTANCE_METERS` (default **10**). Seed loads 6 visits + 1 GPS fraud flag; seed photo keys are metadata-only (no MinIO objects).
+Create body requires ≥1 photo ref (`storageKey`, `fileName`, `contentType`, `sizeBytes`) from a prior upload. Threshold: `GPS_DISTANCE_METERS` (default **10**). Seed loads 6 visits + fraud flags; seed photo keys are metadata-only (no MinIO objects).
+
+## Fraud review (Phase B11)
+
+Admin / Ops review queue (MD read-only). Reviewers cannot act on flags for their own visits.
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/api/v1/fraud/filters` | Types, statuses, severities |
+| `GET` | `/api/v1/fraud` | Paginated — `status`, `severity`, `type`, `search` (open/escalated first) |
+| `GET` | `/api/v1/fraud/:id` | Detail + linked visit + enriched review history |
+| `POST` | `/api/v1/fraud/:id/review` | Body `{ "action": "accept"|"escalate"|"dismiss", "notes": "…" }` |
+
+`accept` / `dismiss` → close flag and set visit `validation: accepted`. `escalate` → `escalated` + severity `high` + assign reviewer. Seed: 4 flags (matches frontend demo).
 
 ## Scripts
 
@@ -254,6 +267,7 @@ backend/
 | B8 — Feedback | Complete |
 | B9 — Insights aggregates | Complete |
 | B10 — Visits (GPS + MinIO photos) | Complete |
-| B11 — Fraud review | Next |
+| B11 — Fraud review | Complete |
+| B12 — Reporting | Next |
 
 See `../DOCs/SAMU-Backend-Implementation-Phases.md`.

@@ -234,8 +234,24 @@ export const SEED_VISITS: SeedVisit[] = [
   },
 ];
 
-/** GPS mismatch for the flagged seed visit (full fraud review APIs in B11). */
-export const SEED_FRAUD_FLAGS: SeedFraudFlag[] = [
+export type SeedFraudReviewEvent = {
+  id: string;
+  at: string;
+  byEmail: string;
+  action: "accept" | "escalate" | "dismiss" | "note";
+  notes?: string;
+};
+
+export type SeedFraudFlagFull = SeedFraudFlag & {
+  assignedReviewerEmail?: string;
+  reviewedByEmail?: string;
+  reviewedAt?: string;
+  resolution?: string;
+  reviewHistory?: SeedFraudReviewEvent[];
+};
+
+/** Mirrors frontend/data/operations.ts FRAUD_FLAGS. */
+export const SEED_FRAUD_FLAGS: SeedFraudFlagFull[] = [
   {
     id: "fraud-001",
     visitId: "visit-002",
@@ -244,5 +260,56 @@ export const SEED_FRAUD_FLAGS: SeedFraudFlag[] = [
     status: "open",
     detectedAt: "2026-09-09T14:41:00.000Z",
     notes: "Visit captured 180m from registered agent location.",
+    reviewHistory: [],
+  },
+  {
+    id: "fraud-002",
+    visitId: "visit-001",
+    type: "Unusual visit frequency",
+    severity: "medium",
+    status: "escalated",
+    detectedAt: "2026-09-10T10:05:00.000Z",
+    notes: "Third visit to the same agent within 48 hours.",
+    assignedReviewerEmail: "ops@solektra.rw",
+    reviewHistory: [
+      {
+        id: "freview-001",
+        at: "2026-09-10T11:00:00.000Z",
+        byEmail: "ops@solektra.rw",
+        action: "escalate",
+        notes: "Pattern needs Head Office confirmation.",
+      },
+    ],
+  },
+  {
+    id: "fraud-003",
+    visitId: "visit-006",
+    type: "Missing evidence metadata",
+    severity: "low",
+    status: "resolved",
+    detectedAt: "2026-09-03T09:00:00.000Z",
+    notes: "Photo EXIF incomplete; reviewed and accepted.",
+    resolution: "Evidence confirmed via TC follow-up call.",
+    reviewedAt: "2026-09-04T08:30:00.000Z",
+    reviewedByEmail: "admin@solektra.rw",
+    reviewHistory: [
+      {
+        id: "freview-002",
+        at: "2026-09-04T08:30:00.000Z",
+        byEmail: "admin@solektra.rw",
+        action: "accept",
+        notes: "Evidence confirmed via TC follow-up call.",
+      },
+    ],
+  },
+  {
+    id: "fraud-004",
+    visitId: "visit-003",
+    type: "SMS dispute correlation",
+    severity: "medium",
+    status: "open",
+    detectedAt: "2026-09-12T12:00:00.000Z",
+    notes: "Agent SMS still pending while GPS borderline accepted.",
+    reviewHistory: [],
   },
 ];

@@ -1,4 +1,4 @@
-// SAMU Prisma schema — Phase B10 adds field visits + photos (+ GPS fraud flags).
+// SAMU Prisma schema — Phase B11 adds fraud review workflow on FraudFlag.
 // Keep this file the single source of DB truth.
 
 generator client {
@@ -186,6 +186,7 @@ model User {
   communityFeedback     CommunityFeedback[]   @relation("FeedbackTc")
   visits                Visit[]               @relation("VisitTc")
   fraudFlagsReviewed    FraudFlag[]           @relation("FraudReviewer")
+  fraudFlagsAssigned    FraudFlag[]           @relation("FraudAssignee")
 
   @@index([role])
   @@index([status])
@@ -540,30 +541,33 @@ model VisitPhoto {
   @@map("visit_photos")
 }
 
-/// Suspicious visit markers. Review workflow APIs land in Phase B11.
+/// Suspicious visit markers — reviewed by Admin / Ops (Phase B11).
 model FraudFlag {
-  id                 String        @id
-  visitId            String        @map("visit_id")
-  type               String
-  severity           FraudSeverity
-  status             FraudStatus   @default(open)
-  notes              String?
-  resolution         String?
-  detectedAt         DateTime      @map("detected_at")
-  reviewedAt         DateTime?     @map("reviewed_at")
-  reviewedByUserId   String?       @map("reviewed_by_user_id")
-  /// Append-only review events (escalate, resolve, dismiss, …).
-  reviewHistoryJson  Json          @default("[]") @map("review_history_json")
-  createdAt          DateTime      @default(now()) @map("created_at")
-  updatedAt          DateTime      @updatedAt @map("updated_at")
+  id                   String        @id
+  visitId              String        @map("visit_id")
+  type                 String
+  severity             FraudSeverity
+  status               FraudStatus   @default(open)
+  notes                String?
+  resolution           String?
+  detectedAt           DateTime      @map("detected_at")
+  reviewedAt           DateTime?     @map("reviewed_at")
+  reviewedByUserId     String?       @map("reviewed_by_user_id")
+  assignedReviewerId   String?       @map("assigned_reviewer_id")
+  /// Append-only review events (accept, escalate, dismiss, note).
+  reviewHistoryJson    Json          @default("[]") @map("review_history_json")
+  createdAt            DateTime      @default(now()) @map("created_at")
+  updatedAt            DateTime      @updatedAt @map("updated_at")
 
-  visit      Visit @relation(fields: [visitId], references: [id], onDelete: Cascade)
-  reviewedBy User? @relation("FraudReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  visit              Visit @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  reviewedBy         User? @relation("FraudReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  assignedReviewer   User? @relation("FraudAssignee", fields: [assignedReviewerId], references: [id], onDelete: SetNull)
 
   @@index([visitId])
   @@index([status])
   @@index([severity])
   @@index([type])
   @@index([detectedAt])
+  @@index([assignedReviewerId])
   @@map("fraud_flags")
 }

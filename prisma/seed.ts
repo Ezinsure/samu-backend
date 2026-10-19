@@ -642,8 +642,23 @@ async function seedVisits(userByEmail: Map<string, string>) {
     console.log(`  ✓ ${row.id} (${row.purpose})`);
   }
 
-  console.log("Seeding GPS fraud flags…");
+  console.log("Seeding fraud flags…");
   for (const row of SEED_FRAUD_FLAGS) {
+    const assignedReviewerId = row.assignedReviewerEmail
+      ? userByEmail.get(row.assignedReviewerEmail) ?? null
+      : null;
+    const reviewedByUserId = row.reviewedByEmail
+      ? userByEmail.get(row.reviewedByEmail) ?? null
+      : null;
+
+    const reviewHistory = (row.reviewHistory ?? []).map((event) => ({
+      id: event.id,
+      at: event.at,
+      byUserId: userByEmail.get(event.byEmail) ?? event.byEmail,
+      action: event.action,
+      notes: event.notes,
+    }));
+
     await prisma.fraudFlag.upsert({
       where: { id: row.id },
       create: {
@@ -655,7 +670,10 @@ async function seedVisits(userByEmail: Map<string, string>) {
         detectedAt: new Date(row.detectedAt),
         notes: row.notes ?? null,
         resolution: row.resolution ?? null,
-        reviewHistoryJson: [],
+        reviewedAt: row.reviewedAt ? new Date(row.reviewedAt) : null,
+        reviewedByUserId,
+        assignedReviewerId,
+        reviewHistoryJson: reviewHistory,
       },
       update: {
         visitId: row.visitId,
@@ -665,6 +683,10 @@ async function seedVisits(userByEmail: Map<string, string>) {
         detectedAt: new Date(row.detectedAt),
         notes: row.notes ?? null,
         resolution: row.resolution ?? null,
+        reviewedAt: row.reviewedAt ? new Date(row.reviewedAt) : null,
+        reviewedByUserId,
+        assignedReviewerId,
+        reviewHistoryJson: reviewHistory,
       },
     });
     console.log(`  ✓ ${row.id} (${row.type})`);

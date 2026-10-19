@@ -15,6 +15,7 @@ import { healthRouter } from "./modules/health/health.routes.js";
 import { insightsRouter } from "./modules/insights/insights.routes.js";
 import { leadsRouter } from "./modules/leads/leads.routes.js";
 import { feedbackRouter } from "./modules/feedback/feedback.routes.js";
+import { fraudRouter } from "./modules/fraud/fraud.routes.js";
 import { onboardingRouter } from "./modules/onboarding/onboarding.routes.js";
 import { salesRouter } from "./modules/sales/sales.routes.js";
 import { territoriesRouter } from "./modules/territories/territories.routes.js";
@@ -69,6 +70,7 @@ export function createApp() {
   api.use("/insights", insightsRouter);
   api.use("/coap", coapRouter);
   api.use("/visits", visitsRouter);
+  api.use("/fraud", fraudRouter);
   app.use("/api/v1", api);
 
   app.use(notFoundHandler);
