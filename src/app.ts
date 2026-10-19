@@ -10,7 +10,9 @@ import { notFoundHandler } from "./middleware/not-found.js";
 import { activitiesRouter } from "./modules/activities/activities.routes.js";
 import { agentsRouter } from "./modules/agents/agents.routes.js";
 import { authRouter } from "./modules/auth/auth.routes.js";
+import { coapRouter } from "./modules/coap/coap.routes.js";
 import { healthRouter } from "./modules/health/health.routes.js";
+import { insightsRouter } from "./modules/insights/insights.routes.js";
 import { leadsRouter } from "./modules/leads/leads.routes.js";
 import { feedbackRouter } from "./modules/feedback/feedback.routes.js";
 import { onboardingRouter } from "./modules/onboarding/onboarding.routes.js";
@@ -63,6 +65,8 @@ export function createApp() {
   api.use("/onboarding", onboardingRouter);
   api.use("/sales", salesRouter);
   api.use("/feedback", feedbackRouter);
+  api.use("/insights", insightsRouter);
+  api.use("/coap", coapRouter);
   app.use("/api/v1", api);
 
   app.use(notFoundHandler);

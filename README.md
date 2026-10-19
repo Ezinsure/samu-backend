@@ -185,6 +185,19 @@ Seed loads 4 demo sales linked to leads/onboarding where applicable.
 
 Seed loads 4 demo feedback items. **COAP core (B4–B8) is complete.**
 
+## Insights + service workspace (Phase B9)
+
+Composite read models that cut frontend fan-out (TC-scoped; MD/Admin/Ops national).
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/api/v1/insights/coap-dashboard` | KPIs + by-service + recent leads/activities; optional `?month=YYYY-MM` (default: current UTC month) |
+| `GET` | `/api/v1/insights/coap-filter-options` | Provinces/districts/sectors + coordinators + service lines |
+| `GET` | `/api/v1/coap/services` | Hub — summary card per service line |
+| `GET` | `/api/v1/coap/services/:line/workspace` | Cockpit — line summary + recent leads/activities/onboarding/sales |
+
+Seed COAP dates are mostly **2026-09**. For non-empty “this month” KPIs against seed data, call `?month=2026-09`.
+
 ## Scripts
 
 | Command | Description |
@@ -196,6 +209,8 @@ Seed loads 4 demo feedback items. **COAP core (B4–B8) is complete.**
 | `npm run prisma:migrate` | Create/apply migrations (dev) |
 | `npm run prisma:deploy` | Apply migrations (CI/prod) |
 | `npm run db:seed` | Seed users + geo + agents + full COAP sample (through feedback) |
+
+Insights (B9) need no extra seed — they aggregate B4–B8 tables.
 
 ## Project structure
 
@@ -224,6 +239,7 @@ backend/
 | B6 — Onboarding | Complete |
 | B7 — Sales | Complete |
 | B8 — Feedback | Complete |
-| B9 — Insights aggregates | Next |
+| B9 — Insights aggregates | Complete |
+| B10 — Visits | Next |
 
 See `../DOCs/SAMU-Backend-Implementation-Phases.md`.
