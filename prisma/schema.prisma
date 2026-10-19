@@ -1,4 +1,4 @@
-// SAMU Prisma schema — Phase B1 adds identity (users + refresh tokens).
+// SAMU Prisma schema — Phase B2 adds geo territories + TC assignments.
 // Keep this file the single source of DB truth.
 
 generator client {
@@ -35,6 +35,13 @@ enum UserStatus {
   disabled
 }
 
+enum TerritoryType {
+  province
+  district
+  sector
+  cell
+}
+
 model User {
   id             String     @id @default(cuid())
   email          String     @unique
@@ -50,7 +57,9 @@ model User {
   createdAt      DateTime   @default(now()) @map("created_at")
   updatedAt      DateTime   @updatedAt @map("updated_at")
 
-  refreshTokens RefreshToken[]
+  refreshTokens         RefreshToken[]
+  territoryAssignments  TerritoryAssignment[]
+  activeTerritories     Territory[]           @relation("TerritoryActiveTc")
 
   @@index([role])
   @@index([status])
@@ -70,4 +79,45 @@ model RefreshToken {
   @@index([userId])
   @@index([tokenHash])
   @@map("refresh_tokens")
+}
+
+/// Rwanda geo hierarchy (province → district → sector → cell).
+/// Stable string ids (e.g. dist-gasabo) keep seeds aligned with the demo frontend.
+model Territory {
+  id             String        @id
+  name           String
+  type           TerritoryType
+  parentId       String?       @map("parent_id")
+  /// Denormalized active TC for districts; kept in sync on assign/unassign.
+  activeTcUserId String?       @map("active_tc_user_id")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  parent     Territory?            @relation("TerritoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children   Territory[]           @relation("TerritoryTree")
+  activeTc   User?                 @relation("TerritoryActiveTc", fields: [activeTcUserId], references: [id], onDelete: SetNull)
+  assignments TerritoryAssignment[]
+
+  @@index([parentId])
+  @@index([type])
+  @@index([activeTcUserId])
+  @@map("territories")
+}
+
+model TerritoryAssignment {
+  id          String    @id @default(cuid())
+  territoryId String    @map("territory_id")
+  tcUserId    String    @map("tc_user_id")
+  startedAt   DateTime  @default(now()) @map("started_at")
+  endedAt     DateTime? @map("ended_at")
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  territory Territory @relation(fields: [territoryId], references: [id], onDelete: Cascade)
+  tcUser    User      @relation(fields: [tcUserId], references: [id], onDelete: Cascade)
+
+  @@index([territoryId])
+  @@index([tcUserId])
+  @@index([active])
+  @@map("territory_assignments")
 }

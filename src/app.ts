@@ -9,6 +9,7 @@ import { errorHandler } from "./middleware/error-handler.js";
 import { notFoundHandler } from "./middleware/not-found.js";
 import { authRouter } from "./modules/auth/auth.routes.js";
 import { healthRouter } from "./modules/health/health.routes.js";
+import { territoriesRouter } from "./modules/territories/territories.routes.js";
 
 /**
  * Builds the Express application (no listen).
@@ -49,6 +50,7 @@ export function createApp() {
     });
   });
   api.use("/auth", authRouter);
+  api.use("/territories", territoriesRouter);
   app.use("/api/v1", api);
 
   app.use(notFoundHandler);

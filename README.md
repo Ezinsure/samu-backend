@@ -107,6 +107,17 @@ Invoke-RestMethod -Method Post -Uri http://localhost:4000/api/v1/auth/login `
 Invoke-RestMethod -Uri http://localhost:4000/api/v1/auth/me -WebSession $s
 ```
 
+## Territories (Phase B2)
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/api/v1/territories/tree` | Geo tree (TC-scoped); includes coordinators + `canManage` |
+| `GET` | `/api/v1/territories/coordinators` | Active TC users |
+| `GET` | `/api/v1/territories/:id/workspace` | Detail + assignment history (`agents` empty until B3) |
+| `POST` | `/api/v1/territories/:id/assign` | Admin only — body `{ "tcUserId": "…" }` (districts only) |
+
+Seed includes Rwanda sample provinces/districts/sectors/cells (stable ids matching the demo frontend) and assigns Kigali districts → `tc.kigali@…`, Southern → `tc.south@…`.
+
 ## Scripts
 
 | Command | Description |
@@ -117,7 +128,7 @@ Invoke-RestMethod -Uri http://localhost:4000/api/v1/auth/me -WebSession $s
 | `npm run lint` | Typecheck (`tsc --noEmit`) |
 | `npm run prisma:migrate` | Create/apply migrations (dev) |
 | `npm run prisma:deploy` | Apply migrations (CI/prod) |
-| `npm run db:seed` | Seed users for all roles |
+| `npm run db:seed` | Seed users + geo tree + TC assignments |
 
 ## Project structure
 
@@ -139,6 +150,7 @@ backend/
 | --- | --- |
 | B0 — Scaffold + Docker + health | Complete |
 | B1 — Auth + seed users | Complete |
-| B2 — Territories | Next |
+| B2 — Territories | Complete |
+| B3 — Agents | Next |
 
 See `../DOCs/SAMU-Backend-Implementation-Phases.md`.

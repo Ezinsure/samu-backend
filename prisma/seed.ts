@@ -1,4 +1,4 @@
-import { PrismaClient, type UserRole } from "@prisma/client";
+import { PrismaClient, type TerritoryType, type UserRole } from "@prisma/client";
 import argon2 from "argon2";
 
 const prisma = new PrismaClient();
@@ -9,6 +9,13 @@ type SeedUser = {
   role: UserRole;
   password: string;
   phone?: string;
+};
+
+type SeedTerritory = {
+  id: string;
+  name: string;
+  type: TerritoryType;
+  parentId?: string;
 };
 
 /**
@@ -60,6 +67,55 @@ const SEED_USERS: SeedUser[] = [
   },
 ];
 
+/** Mirrors frontend/data/geography.ts so adapters can swap with stable ids. */
+const SEED_TERRITORIES: SeedTerritory[] = [
+  { id: "prov-kigali", name: "Kigali City", type: "province" },
+  { id: "prov-south", name: "Southern Province", type: "province" },
+  { id: "prov-east", name: "Eastern Province", type: "province" },
+  { id: "prov-north", name: "Northern Province", type: "province" },
+  { id: "prov-west", name: "Western Province", type: "province" },
+
+  { id: "dist-gasabo", name: "Gasabo", type: "district", parentId: "prov-kigali" },
+  { id: "dist-kicukiro", name: "Kicukiro", type: "district", parentId: "prov-kigali" },
+  { id: "dist-nyarugenge", name: "Nyarugenge", type: "district", parentId: "prov-kigali" },
+  { id: "dist-huye", name: "Huye", type: "district", parentId: "prov-south" },
+  { id: "dist-muhanga", name: "Muhanga", type: "district", parentId: "prov-south" },
+  { id: "dist-rwamagana", name: "Rwamagana", type: "district", parentId: "prov-east" },
+  { id: "dist-musanze", name: "Musanze", type: "district", parentId: "prov-north" },
+  { id: "dist-rubavu", name: "Rubavu", type: "district", parentId: "prov-west" },
+
+  { id: "sec-remera", name: "Remera", type: "sector", parentId: "dist-gasabo" },
+  { id: "sec-kimironko", name: "Kimironko", type: "sector", parentId: "dist-gasabo" },
+  { id: "sec-kanombe", name: "Kanombe", type: "sector", parentId: "dist-kicukiro" },
+  { id: "sec-gikondo", name: "Gikondo", type: "sector", parentId: "dist-kicukiro" },
+  { id: "sec-nyamirambo", name: "Nyamirambo", type: "sector", parentId: "dist-nyarugenge" },
+  { id: "sec-ngoma", name: "Ngoma", type: "sector", parentId: "dist-huye" },
+  { id: "sec-nyamabuye", name: "Nyamabuye", type: "sector", parentId: "dist-muhanga" },
+
+  { id: "cell-rukiri-i", name: "Rukiri I", type: "cell", parentId: "sec-remera" },
+  { id: "cell-rukiri-ii", name: "Rukiri II", type: "cell", parentId: "sec-remera" },
+  { id: "cell-kibagabaga", name: "Kibagabaga", type: "cell", parentId: "sec-kimironko" },
+  { id: "cell-nyagatovu", name: "Nyagatovu", type: "cell", parentId: "sec-kimironko" },
+  { id: "cell-busanza", name: "Busanza", type: "cell", parentId: "sec-kanombe" },
+  { id: "cell-kabeza", name: "Kabeza", type: "cell", parentId: "sec-kanombe" },
+  { id: "cell-kanserege", name: "Kanserege", type: "cell", parentId: "sec-gikondo" },
+  { id: "cell-biryogo", name: "Biryogo", type: "cell", parentId: "sec-nyamirambo" },
+  { id: "cell-mwendo", name: "Mwendo", type: "cell", parentId: "sec-nyamirambo" },
+  { id: "cell-butare", name: "Butare", type: "cell", parentId: "sec-ngoma" },
+  { id: "cell-matyazo", name: "Matyazo", type: "cell", parentId: "sec-ngoma" },
+  { id: "cell-gahogo", name: "Gahogo", type: "cell", parentId: "sec-nyamabuye" },
+  { id: "cell-kavumu", name: "Kavumu", type: "cell", parentId: "sec-nyamabuye" },
+];
+
+/** District → TC email (seed users must exist first). */
+const DISTRICT_TC_EMAIL: Record<string, string> = {
+  "dist-gasabo": "tc.kigali@solektra.rw",
+  "dist-kicukiro": "tc.kigali@solektra.rw",
+  "dist-nyarugenge": "tc.kigali@solektra.rw",
+  "dist-huye": "tc.south@solektra.rw",
+  "dist-muhanga": "tc.south@solektra.rw",
+};
+
 function initialsFromName(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "??";
@@ -67,11 +123,20 @@ function initialsFromName(name: string): string {
   return `${parts[0]![0] ?? ""}${parts[1]![0] ?? ""}`.toUpperCase();
 }
 
-/**
- * Upsert seed users so re-running seed is idempotent (password/role reset to doc values).
- */
-async function main() {
+/** Province → district → sector → cell order for parent FK safety. */
+function sortTerritoriesForInsert(rows: SeedTerritory[]): SeedTerritory[] {
+  const rank: Record<TerritoryType, number> = {
+    province: 0,
+    district: 1,
+    sector: 2,
+    cell: 3,
+  };
+  return [...rows].sort((a, b) => rank[a.type] - rank[b.type]);
+}
+
+async function seedUsers(): Promise<Map<string, string>> {
   console.log("Seeding SAMU users (all roles)…");
+  const byEmail = new Map<string, string>();
 
   for (const seed of SEED_USERS) {
     const passwordHash = await argon2.hash(seed.password, {
@@ -99,9 +164,73 @@ async function main() {
       },
     });
 
+    byEmail.set(user.email, user.id);
     console.log(`  ✓ ${user.email} (${user.role})`);
   }
 
+  return byEmail;
+}
+
+async function seedTerritories(userByEmail: Map<string, string>) {
+  console.log("Seeding territories (geo tree)…");
+
+  for (const row of sortTerritoriesForInsert(SEED_TERRITORIES)) {
+    await prisma.territory.upsert({
+      where: { id: row.id },
+      create: {
+        id: row.id,
+        name: row.name,
+        type: row.type,
+        parentId: row.parentId,
+      },
+      update: {
+        name: row.name,
+        type: row.type,
+        parentId: row.parentId,
+      },
+    });
+    console.log(`  ✓ ${row.id} (${row.type})`);
+  }
+
+  console.log("Seeding district → TC assignments…");
+  const now = new Date();
+
+  for (const [districtId, email] of Object.entries(DISTRICT_TC_EMAIL)) {
+    const tcUserId = userByEmail.get(email);
+    if (!tcUserId) {
+      throw new Error(`Missing seed user for ${email}`);
+    }
+
+    // Close prior active rows, then open a fresh assignment (idempotent end state).
+    await prisma.territoryAssignment.updateMany({
+      where: { territoryId: districtId, active: true },
+      data: { active: false, endedAt: now },
+    });
+
+    await prisma.territoryAssignment.create({
+      data: {
+        territoryId: districtId,
+        tcUserId,
+        startedAt: now,
+        active: true,
+      },
+    });
+
+    await prisma.territory.update({
+      where: { id: districtId },
+      data: { activeTcUserId: tcUserId },
+    });
+
+    console.log(`  ✓ ${districtId} → ${email}`);
+  }
+}
+
+/**
+ * Idempotent seed: users, geo tree, and active district TC assignments.
+ */
+async function main() {
+  const userByEmail = await seedUsers();
+  await seedTerritories(userByEmail);
   console.log("Seed complete.");
 }
 
