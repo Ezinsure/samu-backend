@@ -1,6 +1,7 @@
 import { PrismaClient, type TerritoryType, type UserRole } from "@prisma/client";
 import argon2 from "argon2";
 import { SEED_AGENTS } from "./seed-agents-data.js";
+import { SEED_LEADS } from "./seed-leads-data.js";
 
 const prisma = new PrismaClient();
 
@@ -313,13 +314,63 @@ async function seedAgents(userByEmail: Map<string, string>) {
   }
 }
 
+async function seedLeads(userByEmail: Map<string, string>) {
+  console.log("Seeding COAP leads…");
+
+  for (const row of SEED_LEADS) {
+    const tcUserId = userByEmail.get(row.tcEmail);
+    if (!tcUserId) {
+      throw new Error(`Missing seed TC for ${row.tcEmail}`);
+    }
+
+    const lead = await prisma.lead.upsert({
+      where: { id: row.id },
+      create: {
+        id: row.id,
+        name: row.name,
+        phone: row.phone,
+        entityType: row.entityType,
+        serviceLine: row.serviceLine,
+        status: row.status,
+        geoProvince: row.province,
+        geoDistrict: row.district,
+        geoSector: row.sector,
+        tcUserId,
+        interestSummary: row.interestSummary ?? null,
+        notes: row.notes ?? null,
+        convertedAt: row.convertedAt ? new Date(row.convertedAt) : null,
+        createdAt: new Date(row.createdAt),
+        updatedAt: new Date(row.updatedAt),
+      },
+      update: {
+        name: row.name,
+        phone: row.phone,
+        entityType: row.entityType,
+        serviceLine: row.serviceLine,
+        status: row.status,
+        geoProvince: row.province,
+        geoDistrict: row.district,
+        geoSector: row.sector,
+        tcUserId,
+        interestSummary: row.interestSummary ?? null,
+        notes: row.notes ?? null,
+        convertedAt: row.convertedAt ? new Date(row.convertedAt) : null,
+        updatedAt: new Date(row.updatedAt),
+      },
+    });
+
+    console.log(`  ✓ ${lead.id} (${lead.name})`);
+  }
+}
+
 /**
- * Idempotent seed: users, geo tree, TC assignments, and agents.
+ * Idempotent seed: users, geo, agents, and COAP leads.
  */
 async function main() {
   const userByEmail = await seedUsers();
   await seedTerritories(userByEmail);
   await seedAgents(userByEmail);
+  await seedLeads(userByEmail);
   console.log("Seed complete.");
 }
 

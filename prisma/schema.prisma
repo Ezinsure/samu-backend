@@ -1,4 +1,4 @@
-// SAMU Prisma schema — Phase B3 adds agents + TC assignment history.
+// SAMU Prisma schema — Phase B4 adds COAP leads.
 // Keep this file the single source of DB truth.
 
 generator client {
@@ -55,6 +55,29 @@ enum ComplianceTone {
   red
 }
 
+enum ServiceLine {
+  irembo
+  bk
+  internet
+  device_financing
+  insurance
+  clean_cooking
+}
+
+enum LeadStatus {
+  new
+  contacted
+  qualified
+  converted
+  lost
+}
+
+enum LeadEntityType {
+  person
+  household
+  business
+}
+
 model User {
   id             String     @id @default(cuid())
   email          String     @unique
@@ -76,6 +99,7 @@ model User {
   activeTerritories     Territory[]           @relation("TerritoryActiveTc")
   coordinatedAgents     Agent[]               @relation("AgentTc")
   agentAssignments      AgentAssignment[]     @relation("AgentAssignmentTc")
+  leads                 Lead[]                @relation("LeadTc")
 
   @@index([role])
   @@index([status])
@@ -194,4 +218,32 @@ model AgentAssignment {
   @@index([tcUserId])
   @@index([active])
   @@map("agent_assignments")
+}
+
+/// COAP lead — opportunity captured by a TC (or Admin/Ops on their behalf).
+model Lead {
+  id               String         @id
+  name             String
+  phone            String
+  entityType       LeadEntityType @map("entity_type")
+  serviceLine      ServiceLine    @map("service_line")
+  status           LeadStatus     @default(new)
+  geoProvince      String         @map("geo_province")
+  geoDistrict      String         @map("geo_district")
+  geoSector        String         @map("geo_sector")
+  tcUserId         String         @map("tc_user_id")
+  interestSummary  String?        @map("interest_summary")
+  notes            String?
+  convertedAt      DateTime?      @map("converted_at")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
+  tcUser User @relation("LeadTc", fields: [tcUserId], references: [id], onDelete: Restrict)
+
+  @@index([tcUserId])
+  @@index([serviceLine])
+  @@index([status])
+  @@index([geoDistrict])
+  @@index([updatedAt])
+  @@map("leads")
 }

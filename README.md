@@ -130,6 +130,17 @@ Seed includes Rwanda sample provinces/districts/sectors/cells (stable ids matchi
 
 Seed loads 40 demo agents (same ids as the frontend). `agent.demo@solektra.rw` is linked to `agent-001`.
 
+## Leads — COAP (Phase B4)
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/api/v1/leads` | Paginated — `page`, `pageSize`, `search`, `serviceLine`, `status`, `tcUserId` |
+| `GET` | `/api/v1/leads/:id` | Single lead (TC-scoped) |
+| `POST` | `/api/v1/leads` | Admin / Ops / TC create (TC owns self; Admin/Ops must pass `tcUserId`) |
+| `PATCH` | `/api/v1/leads/:id` | Admin / Ops / owning TC; MD is read-only |
+
+Seed loads 8 demo leads matching the frontend COAP sample.
+
 ## Scripts
 
 | Command | Description |
@@ -140,7 +151,7 @@ Seed loads 40 demo agents (same ids as the frontend). `agent.demo@solektra.rw` i
 | `npm run lint` | Typecheck (`tsc --noEmit`) |
 | `npm run prisma:migrate` | Create/apply migrations (dev) |
 | `npm run prisma:deploy` | Apply migrations (CI/prod) |
-| `npm run db:seed` | Seed users + geo tree + TC assignments + agents |
+| `npm run db:seed` | Seed users + geo + agents + COAP leads |
 
 ## Project structure
 
@@ -164,6 +175,7 @@ backend/
 | B1 — Auth + seed users | Complete |
 | B2 — Territories | Complete |
 | B3 — Agents | Complete |
-| B4 — COAP Leads | Next |
+| B4 — COAP Leads | Complete |
+| B5 — Field activities | Next |
 
 See `../DOCs/SAMU-Backend-Implementation-Phases.md`.
