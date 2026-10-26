@@ -87,8 +87,12 @@ export async function listScorecards(
   const where: Prisma.ScorecardWhereInput = {};
   if (viewer.role === "TERRITORY_COORDINATOR") {
     where.tcUserId = viewer.id;
+    // TCs only see finished evaluations (drafts are Head Office working copies).
+    where.status = "submitted";
   }
-  if (query.status) where.status = query.status;
+  if (query.status && viewer.role !== "TERRITORY_COORDINATOR") {
+    where.status = query.status;
+  }
   if (query.period) where.period = query.period;
   if (query.tcUserId) where.tcUserId = query.tcUserId;
   if (query.search) {
