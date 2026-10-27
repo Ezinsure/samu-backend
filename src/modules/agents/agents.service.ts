@@ -243,8 +243,9 @@ export async function createAgent(
   const now = new Date();
   const services = { ...DEFAULT_AGENT_SERVICES, ...input.services };
 
-  const agent = await prisma.$transaction(async (tx) => {
-    const created = await tx.agent.create({
+  // Sequential batch — Neon PgBouncer does not support interactive transactions.
+  const [agent] = await prisma.$transaction([
+    prisma.agent.create({
       data: {
         id,
         code,
@@ -270,19 +271,16 @@ export async function createAgent(
         createdAt: now,
       },
       include: { tcUser: { select: { name: true } } },
-    });
-
-    await tx.agentAssignment.create({
+    }),
+    prisma.agentAssignment.create({
       data: {
-        agentId: created.id,
-        tcUserId: created.tcUserId,
+        agentId: id,
+        tcUserId: input.tcUserId,
         startedAt: now,
         active: true,
       },
-    });
-
-    return created;
-  });
+    }),
+  ]);
 
   logger.info(
     { agentId: agent.id, code: agent.code, actorUserId: actor.id },
@@ -323,49 +321,53 @@ export async function updateAgent(
   const now = new Date();
   const services = { ...DEFAULT_AGENT_SERVICES, ...input.services };
 
-  const agent = await prisma.$transaction(async (tx) => {
-    if (previousTc !== input.tcUserId) {
-      await tx.agentAssignment.updateMany({
-        where: { agentId: id, active: true },
-        data: { active: false, endedAt: now },
-      });
-      await tx.agentAssignment.create({
-        data: {
-          agentId: id,
-          tcUserId: input.tcUserId,
-          startedAt: now,
-          active: true,
-        },
-      });
-    }
-
-    return tx.agent.update({
-      where: { id },
-      data: {
-        code,
-        name: input.name.trim(),
-        phone: input.phone.trim(),
-        email: input.email?.trim() || null,
-        nidMasked: maskNidFromPhone(input.phone),
-        nidVerified: input.nidVerified ?? existing.nidVerified,
-        status: statusFromApi(input.status),
-        geoProvince: input.geo.province,
-        geoDistrict: input.geo.district,
-        geoSector: input.geo.sector,
-        geoCell: input.geo.cell,
-        lat: input.registeredLocation.lat,
-        lng: input.registeredLocation.lng,
-        tcUserId: input.tcUserId,
-        servicesJson: services,
-        clientsRegistered: input.clientsRegistered ?? existing.clientsRegistered,
-        recruitedThisMonth:
-          input.recruitedThisMonth ?? existing.recruitedThisMonth,
-        reactivatedThisMonth:
-          input.reactivatedThisMonth ?? existing.reactivatedThisMonth,
-      },
-      include: { tcUser: { select: { name: true } } },
-    });
+  const agentUpdate = prisma.agent.update({
+    where: { id },
+    data: {
+      code,
+      name: input.name.trim(),
+      phone: input.phone.trim(),
+      email: input.email?.trim() || null,
+      nidMasked: maskNidFromPhone(input.phone),
+      nidVerified: input.nidVerified ?? existing.nidVerified,
+      status: statusFromApi(input.status),
+      geoProvince: input.geo.province,
+      geoDistrict: input.geo.district,
+      geoSector: input.geo.sector,
+      geoCell: input.geo.cell,
+      lat: input.registeredLocation.lat,
+      lng: input.registeredLocation.lng,
+      tcUserId: input.tcUserId,
+      servicesJson: services,
+      clientsRegistered: input.clientsRegistered ?? existing.clientsRegistered,
+      recruitedThisMonth:
+        input.recruitedThisMonth ?? existing.recruitedThisMonth,
+      reactivatedThisMonth:
+        input.reactivatedThisMonth ?? existing.reactivatedThisMonth,
+    },
+    include: { tcUser: { select: { name: true } } },
   });
+
+  const agent =
+    previousTc !== input.tcUserId
+      ? (
+          await prisma.$transaction([
+            prisma.agentAssignment.updateMany({
+              where: { agentId: id, active: true },
+              data: { active: false, endedAt: now },
+            }),
+            prisma.agentAssignment.create({
+              data: {
+                agentId: id,
+                tcUserId: input.tcUserId,
+                startedAt: now,
+                active: true,
+              },
+            }),
+            agentUpdate,
+          ])
+        )[2]
+      : await agentUpdate;
 
   logger.info(
     {

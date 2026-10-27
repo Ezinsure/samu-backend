@@ -289,8 +289,9 @@ export async function submitScorecard(
   const decision = scorecard.decision ?? suggestDecision(weightedTotal);
   const now = new Date();
 
-  const updated = await prisma.$transaction(async (tx) => {
-    const next = await tx.scorecard.update({
+  // Sequential batch — Neon PgBouncer does not support interactive transactions.
+  const [updated] = await prisma.$transaction([
+    prisma.scorecard.update({
       where: { id },
       data: {
         status: "submitted",
@@ -303,18 +304,15 @@ export async function submitScorecard(
         tcUser: { select: { name: true } },
         evaluator: { select: { name: true } },
       },
-    });
-
-    await tx.monthlyReport.update({
+    }),
+    prisma.monthlyReport.update({
       where: { id: scorecard.monthlyReportId },
       data: {
         status: "evaluated",
         reviewNotes: `Scorecard submitted: ${decisionToApi(decision)}`,
       },
-    });
-
-    return next;
-  });
+    }),
+  ]);
 
   logger.info(
     { scorecardId: id, decision, weightedTotal },

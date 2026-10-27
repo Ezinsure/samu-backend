@@ -331,8 +331,9 @@ export async function reviewFlag(
 
   const history = [...parseHistory(flag.reviewHistoryJson), event];
 
-  const updated = await prisma.$transaction(async (tx) => {
-    const next = await tx.fraudFlag.update({
+  // Sequential `$transaction([...])` — Neon’s PgBouncer pooler drops interactive txs.
+  const [updated] = await prisma.$transaction([
+    prisma.fraudFlag.update({
       where: { id },
       data: {
         status: nextStatus,
@@ -350,23 +351,25 @@ export async function reviewFlag(
         reviewedBy: { select: { name: true } },
         assignedReviewer: { select: { name: true } },
       },
-    });
+    }),
+    ...(nextVisitValidation
+      ? [
+          prisma.visit.update({
+            where: { id: flag.visitId },
+            data: {
+              validation: nextVisitValidation,
+              flaggedReason: clearFlaggedReason ? null : undefined,
+            },
+          }),
+        ]
+      : []),
+  ]);
 
-    if (nextVisitValidation) {
-      await tx.visit.update({
-        where: { id: flag.visitId },
-        data: {
-          validation: nextVisitValidation,
-          flaggedReason: clearFlaggedReason ? null : undefined,
-        },
-      });
-      // Refresh visit fields on the returned object for enrich().
-      next.visit.validation = nextVisitValidation;
-      if (clearFlaggedReason) next.visit.flaggedReason = null;
-    }
-
-    return next;
-  });
+  // Keep the embedded visit in sync with the visit row we just patched.
+  if (nextVisitValidation) {
+    updated.visit.validation = nextVisitValidation;
+    if (clearFlaggedReason) updated.visit.flaggedReason = null;
+  }
 
   logger.info(
     { flagId: id, action: input.action, status: nextStatus },

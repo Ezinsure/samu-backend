@@ -327,28 +327,26 @@ export async function assignTerritoryCoordinator(
   const now = new Date();
   const previousTc = territory.activeTcUserId;
 
-  const agentCount = await prisma.$transaction(async (tx) => {
-    await tx.territoryAssignment.updateMany({
+  // Sequential ops — Neon PgBouncer drops interactive `$transaction(async …)`.
+  await prisma.$transaction([
+    prisma.territoryAssignment.updateMany({
       where: { territoryId, active: true },
       data: { active: false, endedAt: now },
-    });
-
-    await tx.territoryAssignment.create({
+    }),
+    prisma.territoryAssignment.create({
       data: {
         territoryId,
         tcUserId,
         startedAt: now,
         active: true,
       },
-    });
-
-    await tx.territory.update({
+    }),
+    prisma.territory.update({
       where: { id: territoryId },
       data: { activeTcUserId: tcUserId },
-    });
-
-    return reassignAgentsInDistrict(territory.name, tcUserId, tx);
-  });
+    }),
+  ]);
+  const agentCount = await reassignAgentsInDistrict(territory.name, tcUserId);
 
   logger.info(
     {

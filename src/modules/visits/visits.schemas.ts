@@ -55,7 +55,16 @@ export const visitCreateSchema = z.object({
   location: z.object({
     lat: z.number().min(-90).max(90),
     lng: z.number().min(-180).max(180),
-    accuracyMeters: z.number().positive().max(10_000).optional(),
+    // Browser GPS often reports huge accuracy (indoors / coarse location).
+    // Cap after parse so a noisy reading never blocks visit submit.
+    accuracyMeters: z
+      .number()
+      .positive()
+      .max(1_000_000)
+      .optional()
+      .transform((value) =>
+        value === undefined ? undefined : Math.min(Math.round(value), 100_000),
+      ),
   }),
   activities: z.string().trim().min(1).max(4000),
   outcome: z.string().trim().min(1).max(4000),
