@@ -1,9 +1,14 @@
 import { z } from "zod";
 
+/** Strong password: length + upper + lower + digit + special character. */
 export const passwordSchema = z
   .string()
   .min(8, "Password must be at least 8 characters")
-  .max(128, "Password is too long");
+  .max(128, "Password is too long")
+  .regex(/[a-z]/, "Password must include a lowercase letter")
+  .regex(/[A-Z]/, "Password must include an uppercase letter")
+  .regex(/\d/, "Password must include a number")
+  .regex(/[^A-Za-z0-9]/, "Password must include a special character");
 
 /**
  * Public self-registration. Role is always AGENT; account starts as pending
