@@ -47,6 +47,14 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
   return decoded;
 }
 
+/**
+ * Random URL-safe token for one-time links (password reset / invite).
+ * Only its hash (`hashRefreshToken`) is stored in the database.
+ */
+export function generateOneTimeToken(): string {
+  return randomBytes(32).toString("base64url");
+}
+
 /** Opaque refresh token (random) — only the hash is stored in DB. */
 export function generateRefreshToken(): string {
   return randomBytes(48).toString("base64url");

@@ -24,6 +24,7 @@ import { reportsRouter } from "./modules/reports/reports.routes.js";
 import { salesRouter } from "./modules/sales/sales.routes.js";
 import { scorecardsRouter } from "./modules/scorecards/scorecards.routes.js";
 import { territoriesRouter } from "./modules/territories/territories.routes.js";
+import { usersRouter } from "./modules/users/users.routes.js";
 import { visitsRouter } from "./modules/visits/visits.routes.js";
 
 /**
@@ -65,6 +66,7 @@ export function createApp() {
     });
   });
   api.use("/auth", authRouter);
+  api.use("/users", usersRouter);
   api.use("/territories", territoriesRouter);
   api.use("/agents", agentsRouter);
   api.use("/leads", leadsRouter);

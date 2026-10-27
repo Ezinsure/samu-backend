@@ -25,7 +25,7 @@ export type PublicUser = {
   lastLoginAt: Date | null;
 };
 
-function toPublicUser(user: User): PublicUser {
+export function toPublicUser(user: User): PublicUser {
   return {
     id: user.id,
     email: user.email,
@@ -39,7 +39,7 @@ function toPublicUser(user: User): PublicUser {
   };
 }
 
-function initialsFromName(name: string): string {
+export function initialsFromName(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "??";
   if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
@@ -209,7 +209,7 @@ export async function getMe(userId: string): Promise<PublicUser> {
 /**
  * Create access JWT + store hashed refresh token; return both raw tokens.
  */
-async function issueSession(user: User): Promise<AuthSession> {
+export async function issueSession(user: User): Promise<AuthSession> {
   const accessToken = signAccessToken({
     sub: user.id,
     role: user.role,

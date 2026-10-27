@@ -27,6 +27,16 @@ const envSchema = z.object({
   S3_ACCESS_KEY: z.string().default("samu"),
   S3_SECRET_KEY: z.string().default("samu-secret"),
   S3_BUCKET: z.string().default("samu-uploads"),
+  /**
+   * Transactional email via Resend (https://resend.com). When the key is unset,
+   * emails are not sent; outside production the message (with its link) is logged instead.
+   */
+  RESEND_API_KEY: z.string().min(1).optional(),
+  EMAIL_FROM: z.string().min(3).default("SAMU <no-reply@solektra.rw>"),
+  /** Lifetime of a forgot-password link. */
+  PASSWORD_RESET_TTL: z.string().default("1h"),
+  /** Lifetime of the set-password link emailed when an admin creates a user. */
+  PASSWORD_INVITE_TTL: z.string().default("3d"),
   /** Max GPS distance (meters) from agent registered location before flagging. */
   GPS_DISTANCE_METERS: z.coerce.number().int().positive().default(10),
 });

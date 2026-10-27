@@ -203,6 +203,7 @@ model User {
 
   agent                 Agent?                @relation("UserPortalAgent", fields: [agentId], references: [id], onDelete: SetNull)
   refreshTokens         RefreshToken[]
+  passwordResetTokens   PasswordResetToken[]
   territoryAssignments  TerritoryAssignment[]
   activeTerritories     Territory[]           @relation("TerritoryActiveTc")
   coordinatedAgents     Agent[]               @relation("AgentTc")
@@ -240,6 +241,22 @@ model RefreshToken {
   @@index([userId])
   @@index([tokenHash])
   @@map("refresh_tokens")
+}
+
+/// One-time password reset / account invite link. Only the SHA-256 hash is stored.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  /// Set when the token is consumed or superseded by a newer one.
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
 
 /// Rwanda geo hierarchy (province → district → sector → cell).

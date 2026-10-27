@@ -71,7 +71,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Until the auth adapter is wired, the UI still uses the demo store.
+Open [http://localhost:3000](http://localhost:3000). The UI calls this API directly; set `NEXT_PUBLIC_API_URL` in `frontend/.env.local` if the API is not on `http://localhost:4000`.
 
 ## Auth (Phase B1)
 
@@ -283,6 +283,28 @@ Singleton settings, append-only audit log, and stub SMS outbox (no external gate
 
 Visit GPS validation and report KPI progress read from settings. Audit writes on login, visit create, fraud review, report submit, settings patch, and stub SMS.
 
+## Users + account recovery (Phase B15)
+
+Admin-only user management plus self-service account endpoints.
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| `GET` | `/api/v1/users` | Admin; paginated; filters `search`, `role`, `status` |
+| `POST` | `/api/v1/users` | Admin; omit `password` to email a set-password link (`invite`: `sent` / `not_configured` / `failed`) |
+| `GET` | `/api/v1/users/:id` | Admin |
+| `PATCH` | `/api/v1/users/:id` | Admin; name, email, phone, role, `status` (`disabled` = deactivate, `active` = reactivate), `agentId` |
+| `DELETE` | `/api/v1/users/:id` | Admin; `409` if the user has recorded activity (deactivate instead) |
+| `POST` | `/api/v1/users/:id/password` | Admin sets a password directly; revokes sessions |
+| `POST` | `/api/v1/users/:id/reset-link` | Admin emails a reset link |
+| `PATCH` | `/api/v1/auth/me` | Own `name` / `phone` |
+| `POST` | `/api/v1/auth/change-password` | `currentPassword` + `newPassword`; revokes other sessions |
+| `POST` | `/api/v1/auth/forgot-password` | Always `200`; emails a one-time link to active accounts (5 req / 15 min / IP) |
+| `POST` | `/api/v1/auth/reset-password` | `token` + `password`; single use; revokes all sessions |
+
+Guards: admins cannot change their own role/status or delete themselves; a coordinator who still has agents/territories cannot change role; disabling a user revokes their sessions at once.
+
+Email uses [Resend](https://resend.com) (`RESEND_API_KEY`, `EMAIL_FROM`). With no key set (local dev) nothing is sent and the email body, including the reset link, is printed in the API console. Reset links point to `FRONTEND_ORIGIN/reset-password?token=…`.
+
 ## Scripts
 
 | Command | Description |
@@ -328,5 +350,6 @@ backend/
 | B12 — Reporting (monthly + scorecards) | Complete |
 | B13 — Analytics / maps | Complete |
 | B14 — Admin / audit / messaging | Complete |
+| B15 — User management + account recovery | Complete |
 
 See `../DOCs/SAMU-Backend-Implementation-Phases.md`.
