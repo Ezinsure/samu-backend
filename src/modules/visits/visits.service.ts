@@ -434,9 +434,15 @@ export async function createVisit(
   const tcUserId =
     viewer.role === "TERRITORY_COORDINATOR" ? viewer.id : agent.tcUserId;
   const id = `visit-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  const fraudId =
+    gps.validation === "flagged"
+      ? `fraud-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+      : null;
 
-  const visit = await prisma.$transaction(async (tx) => {
-    const created = await tx.visit.create({
+  // Sequential `$transaction([...])` — not the interactive callback form.
+  // Neon’s PgBouncer pooler drops interactive transactions (Prisma P2028).
+  const [visit] = await prisma.$transaction([
+    prisma.visit.create({
       data: {
         id,
         agentId: agent.id,
@@ -476,36 +482,34 @@ export async function createVisit(
         agent: { select: { name: true, code: true, geoDistrict: true } },
         tcUser: { select: { name: true } },
       },
-    });
-
-    await tx.agent.update({
+    }),
+    prisma.agent.update({
       where: { id: agent.id },
       data: {
         lastVisitAt: ended,
         compliance: "green",
         servicesJson: input.checklist,
       },
-    });
-
-    if (gps.validation === "flagged") {
-      await tx.fraudFlag.create({
-        data: {
-          id: `fraud-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-          visitId: created.id,
-          type: "GPS mismatch",
-          severity: "high",
-          status: "open",
-          detectedAt: ended,
-          notes:
-            gps.flaggedReason ??
-            `Visit captured ${distance}m from registered location.`,
-          reviewHistoryJson: [],
-        },
-      });
-    }
-
-    return created;
-  });
+    }),
+    ...(fraudId
+      ? [
+          prisma.fraudFlag.create({
+            data: {
+              id: fraudId,
+              visitId: id,
+              type: "GPS mismatch",
+              severity: "high",
+              status: "open",
+              detectedAt: ended,
+              notes:
+                gps.flaggedReason ??
+                `Visit captured ${distance}m from registered location.`,
+              reviewHistoryJson: [],
+            },
+          }),
+        ]
+      : []),
+  ]);
 
   logger.info(
     {
