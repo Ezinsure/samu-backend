@@ -1,0 +1,54 @@
+# Local infrastructure for SAMU backend (Phase B0+)
+# Usage: docker compose up -d
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: samu-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: samu
+      POSTGRES_PASSWORD: samu
+      POSTGRES_DB: samu
+    ports:
+      - "5432:5432"
+    volumes:
+      - samu_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U samu -d samu"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: samu-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - samu_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: samu-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: samu
+      MINIO_ROOT_PASSWORD: samu-secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - samu_minio_data:/data
+
+volumes:
+  samu_pg_data:
+  samu_redis_data:
+  samu_minio_data:
