@@ -760,10 +760,31 @@ async function seedAdmin(userByEmail: Map<string, string>) {
 }
 
 /**
- * Idempotent seed: users, geo, agents, COAP sample, visits.
+ * Idempotent seed.
+ *
+ * Modes (env `SEED_MODE`):
+ * - `full` (default) — users, geo, agents, COAP, visits, reports, settings
+ * - `users` — login accounts + system settings only (fresh UAT / empty product data)
  */
 async function main() {
+  const mode = (
+    process.env.SEED_MODE ??
+    (process.argv.includes("--users") ? "users" : "full")
+  ).toLowerCase();
+  console.log(`Seed mode: ${mode}`);
+
   const userByEmail = await seedUsers();
+
+  if (mode === "users") {
+    await seedAdmin(userByEmail);
+    console.log("Seed complete (users + system settings only).");
+    return;
+  }
+
+  if (mode !== "full") {
+    throw new Error(`Unknown SEED_MODE="${mode}". Use "full" or "users".`);
+  }
+
   await seedTerritories(userByEmail);
   await seedAgents(userByEmail);
   await seedLeads(userByEmail);

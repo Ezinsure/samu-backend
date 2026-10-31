@@ -12,7 +12,9 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "db:seed:users": "tsx prisma/seed.ts --users",
+    "db:reset:users": "prisma migrate reset --force --skip-seed && tsx prisma/seed.ts --users"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1153.0",
