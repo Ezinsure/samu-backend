@@ -1,11 +1,21 @@
 import { z } from "zod";
 import { passwordSchema } from "../auth/auth.schemas.js";
 
+/** Roles an admin may assign when creating/updating users (product surface). */
 export const userRoleSchema = z.enum([
+  "ADMIN",
+  "TERRITORY_COORDINATOR",
+  "COMMUNITY_OPPORTUNITY_ASSOCIATE",
+  "AGENT",
+]);
+
+/** Includes soft-removed legacy roles for list filters on existing rows. */
+export const userRoleFilterSchema = z.enum([
   "ADMIN",
   "OPERATIONS_MANAGER",
   "MD_VIEWER",
   "TERRITORY_COORDINATOR",
+  "COMMUNITY_OPPORTUNITY_ASSOCIATE",
   "AGENT",
 ]);
 
@@ -26,7 +36,7 @@ export const userListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().trim().max(200).optional(),
-  role: userRoleSchema.optional(),
+  role: userRoleFilterSchema.optional(),
   status: userStatusSchema.optional(),
 });
 

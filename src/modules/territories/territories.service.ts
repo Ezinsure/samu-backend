@@ -56,7 +56,7 @@ type AgentGeoRow = {
   geoDistrict: string;
   geoSector: string;
   geoCell: string;
-  tcUserId: string;
+  tcUserId: string | null;
 };
 
 function toPublic(t: Territory): PublicTerritory {
@@ -253,8 +253,8 @@ export async function getTerritoryWorkspace(
     parentName: territory.parent?.name,
     tcName: territory.activeTc?.name,
     agents: agentRows.map((row) => ({
-      ...toPublicAgent(row, row.tcUser.name),
-      tcName: row.tcUser.name,
+      ...toPublicAgent(row, { tcName: row.tcUser?.name }),
+      tcName: row.tcUser?.name ?? "Unassigned",
     })),
     childSummary: territory.children.map((child) => ({
       id: child.id,

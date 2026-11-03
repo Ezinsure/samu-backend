@@ -1,13 +1,16 @@
 import { z } from "zod";
 
 export const agentStatusSchema = z.enum([
-  "Active",
+  "Candidate",
+  "InTraining",
+  "ExamPending",
+  "Certified",
   "Inactive",
-  "Suspended",
-  "Pending verification",
 ]);
 
 export const complianceSchema = z.enum(["green", "yellow", "red"]);
+
+export const officeTypeSchema = z.enum(["kiosk", "room", "desk"]);
 
 export const agentServicesSchema = z.object({
   iremboTools: z.boolean(),
@@ -30,6 +33,7 @@ export const geoSchema = z.object({
   district: z.string().trim().min(1).max(120),
   sector: z.string().trim().min(1).max(120),
   cell: z.string().trim().min(1).max(120),
+  village: z.string().trim().max(120).optional(),
 });
 
 export const agentInputSchema = z.object({
@@ -39,18 +43,33 @@ export const agentInputSchema = z.object({
     .union([z.string().email().max(320), z.literal("")])
     .optional(),
   code: z.string().trim().min(3).max(40).optional(),
-  status: agentStatusSchema,
+  status: agentStatusSchema.default("Candidate"),
   geo: geoSchema,
   registeredLocation: z.object({
     lat: z.number().min(-90).max(90),
     lng: z.number().min(-180).max(180),
   }),
-  tcUserId: z.string().min(1),
-  services: agentServicesSchema,
+  tcUserId: z.string().min(1).nullable().optional(),
+  age: z.number().int().min(16).max(100).optional(),
+  gender: z.string().trim().max(40).optional(),
+  education: z.string().trim().max(120).optional(),
+  tin: z.string().trim().max(40).optional(),
+  businessType: z.string().trim().max(200).optional(),
+  venue: z.string().trim().max(200).optional(),
+  emergencyContactName: z.string().trim().max(120).optional(),
+  emergencyContactPhone: z.string().trim().max(32).optional(),
+  criminalRecordBillId: z.string().trim().max(80).optional(),
+  certificateStorageKey: z.string().trim().max(500).optional(),
+  hasPrinterScanner: z.boolean().optional(),
+  hasComputer: z.boolean().optional(),
+  officeType: officeTypeSchema.optional(),
+  building: z.string().trim().max(200).optional(),
+  services: agentServicesSchema.optional(),
   clientsRegistered: z.number().int().min(0).optional(),
   recruitedThisMonth: z.boolean().optional(),
   reactivatedThisMonth: z.boolean().optional(),
   nidVerified: z.boolean().optional(),
+  nidNumber: z.string().trim().max(20).optional(),
 });
 
 export const agentListQuerySchema = z.object({
@@ -62,6 +81,11 @@ export const agentListQuerySchema = z.object({
   status: agentStatusSchema.optional(),
   compliance: complianceSchema.optional(),
   tcUserId: z.string().min(1).optional(),
+  unassigned: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === "true")),
+  reviewStatus: z.enum(["pending_review", "accepted", "rejected"]).optional(),
   sortBy: z.enum(["name", "lastVisit", "status"]).default("name"),
   sortDir: z.enum(["asc", "desc"]).default("asc"),
 });
@@ -70,5 +94,21 @@ export const agentIdParamSchema = z.object({
   id: z.string().min(1),
 });
 
+export const pipelineActionSchema = z.object({
+  action: z.enum(["start_training", "record_exam", "certify"]),
+  examScore: z.number().min(0).max(100).optional(),
+  iremboAccountCreated: z.boolean().optional(),
+});
+
+export const reviewActionSchema = z.object({
+  action: z.enum(["accept", "reject"]),
+  notes: z.string().trim().max(2000).optional(),
+});
+
+export const assignTcSchema = z.object({
+  tcUserId: z.string().min(1),
+});
+
 export type AgentInput = z.infer<typeof agentInputSchema>;
 export type AgentListQuery = z.infer<typeof agentListQuerySchema>;
+export type PipelineActionInput = z.infer<typeof pipelineActionSchema>;

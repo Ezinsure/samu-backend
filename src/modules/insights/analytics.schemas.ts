@@ -22,7 +22,7 @@ export const mapFiltersSchema = z.object({
   tcUserId: z.string().min(1).optional(),
   compliance: z.enum(["green", "yellow", "red"]).optional(),
   status: z
-    .enum(["Active", "Inactive", "Suspended", "Pending verification"])
+    .enum(["Candidate", "InTraining", "ExamPending", "Certified", "Inactive"])
     .optional(),
 });
 

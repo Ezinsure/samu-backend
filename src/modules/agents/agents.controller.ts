@@ -4,12 +4,12 @@ import {
   agentIdParamSchema,
   agentInputSchema,
   agentListQuerySchema,
+  assignTcSchema,
+  pipelineActionSchema,
+  reviewActionSchema,
 } from "./agents.schemas.js";
 import * as agentsService from "./agents.service.js";
 
-/**
- * GET /api/v1/agents/filters — facet options for list UI.
- */
 export const getFilters: RequestHandler = async (req, res, next) => {
   try {
     if (!req.user) throw errors.unauthorized();
@@ -21,9 +21,6 @@ export const getFilters: RequestHandler = async (req, res, next) => {
   }
 };
 
-/**
- * GET /api/v1/agents — paginated list.
- */
 export const list: RequestHandler = async (req, res, next) => {
   try {
     if (!req.user) throw errors.unauthorized();
@@ -36,9 +33,6 @@ export const list: RequestHandler = async (req, res, next) => {
   }
 };
 
-/**
- * GET /api/v1/agents/:id — detail + recent visits.
- */
 export const getById: RequestHandler = async (req, res, next) => {
   try {
     if (!req.user) throw errors.unauthorized();
@@ -51,9 +45,6 @@ export const getById: RequestHandler = async (req, res, next) => {
   }
 };
 
-/**
- * POST /api/v1/agents — Admin create.
- */
 export const create: RequestHandler = async (req, res, next) => {
   try {
     if (!req.user) throw errors.unauthorized();
@@ -65,15 +56,52 @@ export const create: RequestHandler = async (req, res, next) => {
   }
 };
 
-/**
- * PATCH /api/v1/agents/:id — Admin update.
- */
 export const update: RequestHandler = async (req, res, next) => {
   try {
     if (!req.user) throw errors.unauthorized();
     const { id } = agentIdParamSchema.parse(req.params);
     const body = agentInputSchema.parse(req.body);
     const agent = await agentsService.updateAgent(id, body, req.user);
+    res.json({ data: { agent } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const pipeline: RequestHandler = async (req, res, next) => {
+  try {
+    if (!req.user) throw errors.unauthorized();
+    const { id } = agentIdParamSchema.parse(req.params);
+    const body = pipelineActionSchema.parse(req.body);
+    const agent = await agentsService.applyPipelineAction(id, body, req.user);
+    res.json({ data: { agent } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const review: RequestHandler = async (req, res, next) => {
+  try {
+    if (!req.user) throw errors.unauthorized();
+    const { id } = agentIdParamSchema.parse(req.params);
+    const body = reviewActionSchema.parse(req.body);
+    const agent = await agentsService.reviewAgent(id, body.action, req.user);
+    res.json({ data: { agent } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const assignTc: RequestHandler = async (req, res, next) => {
+  try {
+    if (!req.user) throw errors.unauthorized();
+    const { id } = agentIdParamSchema.parse(req.params);
+    const body = assignTcSchema.parse(req.body);
+    const agent = await agentsService.assignTerritoryCoordinator(
+      id,
+      body.tcUserId,
+      req.user,
+    );
     res.json({ data: { agent } });
   } catch (error) {
     next(error);

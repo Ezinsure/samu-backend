@@ -1,14 +1,7 @@
 import type { UserRole } from "@prisma/client";
 import type { RequestHandler } from "express";
 import { errors } from "../lib/errors.js";
-
-/** Roles that may perform mutating (write) operations. MD_VIEWER is read-only. */
-const WRITE_ROLES: ReadonlySet<UserRole> = new Set([
-  "ADMIN",
-  "OPERATIONS_MANAGER",
-  "TERRITORY_COORDINATOR",
-  "AGENT",
-]);
+import { canWrite } from "../lib/roles.js";
 
 /**
  * Restrict a route to one or more roles. Must run after `authenticate`.
@@ -37,7 +30,7 @@ export const requireWrite: RequestHandler = (req, _res, next) => {
     next(errors.unauthorized());
     return;
   }
-  if (!WRITE_ROLES.has(req.user.role)) {
+  if (!canWrite(req.user.role)) {
     next(errors.forbidden("Read-only role cannot modify resources"));
     return;
   }

@@ -163,7 +163,7 @@ export async function getDashboardAnalytics(
   });
 
   const monthPrefix = currentUtcMonth();
-  const activeAgents = agents.filter((a) => a.status === "Active").length;
+  const activeAgents = agents.filter((a) => a.status === "Certified").length;
   const overdueAgents = agents.filter((a) => a.compliance === "red").length;
   const dueSoonAgents = agents.filter((a) => a.compliance === "yellow").length;
   const compliantAgents = agents.filter((a) => a.compliance === "green").length;
@@ -230,19 +230,21 @@ export async function getDashboardAnalytics(
         0,
         daysSince(agent.lastVisitAt?.toISOString()) - OVERDUE_AFTER_DAYS,
       ),
-      tcUserId: agent.tcUserId,
-      tcName: agent.tcUser.name,
+      tcUserId: agent.tcUserId ?? "",
+      tcName: agent.tcUser?.name ?? "Unassigned",
     }))
     .sort((a, b) => b.daysOverdue - a.daysOverdue);
 
-  const tcIds = Array.from(new Set(agents.map((a) => a.tcUserId)));
+  const tcIds = Array.from(
+    new Set(agents.map((a) => a.tcUserId).filter(Boolean) as string[]),
+  );
   const leaderboard = tcIds
     .map((tcUserId) => {
       const tcAgents = agents.filter((a) => a.tcUserId === tcUserId);
       const green = tcAgents.filter((a) => a.compliance === "green").length;
       return {
         tcUserId,
-        name: tcAgents[0]?.tcUser.name ?? tcUserId,
+        name: tcAgents[0]?.tcUser?.name ?? tcUserId,
         agents: tcAgents.length,
         visits: visitsByTcMap.get(tcUserId) ?? 0,
         compliancePercent: Math.round(
@@ -282,7 +284,9 @@ export async function getDashboardAnalytics(
   ).length;
 
   const tcNameById = new Map(
-    agents.map((a) => [a.tcUserId, a.tcUser.name] as const),
+    agents
+      .filter((a) => a.tcUserId)
+      .map((a) => [a.tcUserId!, a.tcUser?.name ?? "Unassigned"] as const),
   );
 
   return {
@@ -469,7 +473,7 @@ export async function getAnalyticsWorkspace(
 }
 
 function statusToApi(status: Agent["status"]): string {
-  return status === "PendingVerification" ? "Pending verification" : status;
+  return status;
 }
 
 /**
@@ -504,10 +508,7 @@ export async function getMapWorkspace(
   if (filters.district) where.geoDistrict = filters.district;
   if (filters.compliance) where.compliance = filters.compliance;
   if (filters.status) {
-    where.status =
-      filters.status === "Pending verification"
-        ? "PendingVerification"
-        : (filters.status as Agent["status"]);
+    where.status = filters.status as Agent["status"];
   }
 
   const [agents, coordinators, scopedForFilters] = await Promise.all([
@@ -542,8 +543,8 @@ export async function getMapWorkspace(
     sector: agent.geoSector,
     lat: agent.lat,
     lng: agent.lng,
-    tcUserId: agent.tcUserId,
-    tcName: agent.tcUser.name,
+    tcUserId: agent.tcUserId ?? "",
+    tcName: agent.tcUser?.name ?? "Unassigned",
     lastVisitAt: agent.lastVisitAt?.toISOString(),
   }));
 

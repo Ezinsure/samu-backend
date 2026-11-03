@@ -26,6 +26,12 @@ import { scorecardsRouter } from "./modules/scorecards/scorecards.routes.js";
 import { territoriesRouter } from "./modules/territories/territories.routes.js";
 import { usersRouter } from "./modules/users/users.routes.js";
 import { visitsRouter } from "./modules/visits/visits.routes.js";
+import { publicNetworkRouter } from "./modules/public-network/public-network.routes.js";
+import { inviteLinksRouter } from "./modules/invite-links/invite-links.routes.js";
+import { supportRouter } from "./modules/support/support.routes.js";
+import { trainingRouter } from "./modules/training/training.routes.js";
+import { fieldWorkRouter } from "./modules/field-work/field-work.routes.js";
+import { visitCoverageRouter } from "./modules/visit-coverage/visit-coverage.routes.js";
 
 /**
  * Builds the Express application (no listen).
@@ -83,6 +89,12 @@ export function createApp() {
   api.use("/maps", mapsRouter);
   api.use("/admin", adminRouter);
   api.use("/messaging", messagingRouter);
+  api.use("/public", publicNetworkRouter);
+  api.use("/invite-links", inviteLinksRouter);
+  api.use("/support", supportRouter);
+  api.use("/training", trainingRouter);
+  api.use("/field-work", fieldWorkRouter);
+  api.use("/visit-coverage", visitCoverageRouter);
   app.use("/api/v1", api);
 
   app.use(notFoundHandler);

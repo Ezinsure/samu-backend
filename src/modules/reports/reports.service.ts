@@ -162,10 +162,7 @@ async function snapshotAgents(tcUserId: string): Promise<AgentSnapshot[]> {
     name: agent.name,
     district: agent.geoDistrict,
     sector: agent.geoSector,
-    status:
-      agent.status === "PendingVerification"
-        ? "Pending verification"
-        : agent.status,
+    status: agent.status,
     compliance: agent.compliance,
     lastVisitAt: agent.lastVisitAt?.toISOString(),
     recruitedThisMonth: agent.recruitedThisMonth,

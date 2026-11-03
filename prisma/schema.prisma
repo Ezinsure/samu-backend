@@ -26,6 +26,7 @@ enum UserRole {
   OPERATIONS_MANAGER
   MD_VIEWER
   TERRITORY_COORDINATOR
+  COMMUNITY_OPPORTUNITY_ASSOCIATE
   AGENT
 }
 
@@ -42,11 +43,32 @@ enum TerritoryType {
   cell
 }
 
+/// Network lifecycle: Agent candidate → Irembo agent (certified).
 enum AgentStatus {
-  Active
+  Candidate
+  InTraining
+  ExamPending
+  Certified
   Inactive
-  Suspended
-  PendingVerification @map("Pending verification")
+}
+
+enum OfficeType {
+  kiosk
+  room
+  desk
+}
+
+enum ReviewStatus {
+  pending_review
+  accepted
+  rejected
+}
+
+enum SupportChannel {
+  phone
+  whatsapp
+  in_person
+  other
 }
 
 enum ComplianceTone {
@@ -207,7 +229,11 @@ model User {
   territoryAssignments  TerritoryAssignment[]
   activeTerritories     Territory[]           @relation("TerritoryActiveTc")
   coordinatedAgents     Agent[]               @relation("AgentTc")
+  recruitedAgents       Agent[]               @relation("AgentRecruitedBy")
   agentAssignments      AgentAssignment[]     @relation("AgentAssignmentTc")
+  inviteLinks           InviteLink[]          @relation("InviteLinkOwner")
+  supportLogs           SupportLog[]          @relation("SupportLogTc")
+  trainingUploads       TrainingSession[]     @relation("TrainingUploader")
   leads                 Lead[]                @relation("LeadTc")
   fieldActivities       FieldActivity[]       @relation("FieldActivityTc")
   onboardingCases       OnboardingCase[]      @relation("OnboardingTc")
@@ -308,15 +334,35 @@ model Agent {
   email                  String?
   nidMasked              String         @map("nid_masked")
   nidVerified            Boolean        @default(false) @map("nid_verified")
-  status                 AgentStatus    @default(Active)
+  status                 AgentStatus    @default(Candidate)
+  reviewStatus           ReviewStatus   @default(accepted) @map("review_status")
+  age                    Int?
+  gender                 String?
+  education              String?
+  tin                    String?
+  businessType           String?        @map("business_type")
+  venue                  String?
+  emergencyContactName   String?        @map("emergency_contact_name")
+  emergencyContactPhone  String?        @map("emergency_contact_phone")
+  criminalRecordBillId   String?        @map("criminal_record_bill_id")
+  certificateStorageKey  String?        @map("certificate_storage_key")
+  hasPrinterScanner      Boolean        @default(false) @map("has_printer_scanner")
+  hasComputer            Boolean        @default(false) @map("has_computer")
+  officeType             OfficeType?    @map("office_type")
+  building               String?
   geoProvince            String         @map("geo_province")
   geoDistrict            String         @map("geo_district")
   geoSector              String         @map("geo_sector")
   geoCell                String         @map("geo_cell")
+  geoVillage             String?        @map("geo_village")
   lat                    Float
   lng                    Float
   accuracyMeters         Float?         @map("accuracy_meters")
-  tcUserId               String         @map("tc_user_id")
+  /// Null until Admin assigns a TC (e.g. COA-recruited candidates).
+  tcUserId               String?        @map("tc_user_id")
+  recruitedByUserId      String?        @map("recruited_by_user_id")
+  examScore              Float?         @map("exam_score")
+  iremboAccountCreatedAt DateTime?      @map("irembo_account_created_at")
   /// Service readiness checklist (irembo, bk, internet, cooking, …).
   servicesJson           Json           @map("services_json")
   lastVisitAt            DateTime?      @map("last_visit_at")
@@ -327,20 +373,91 @@ model Agent {
   createdAt              DateTime       @default(now()) @map("created_at")
   updatedAt              DateTime       @updatedAt @map("updated_at")
 
-  tcUser      User              @relation("AgentTc", fields: [tcUserId], references: [id], onDelete: Restrict)
+  tcUser           User?              @relation("AgentTc", fields: [tcUserId], references: [id], onDelete: Restrict)
+  recruitedBy      User?              @relation("AgentRecruitedBy", fields: [recruitedByUserId], references: [id], onDelete: SetNull)
   assignments      AgentAssignment[]
-  portalUsers      User[]            @relation("UserPortalAgent")
+  portalUsers      User[]             @relation("UserPortalAgent")
   fieldActivities  FieldActivity[]
   onboardingCases  OnboardingCase[]
   visits           Visit[]
+  supportLogs      SupportLog[]
+  trainingAttendance TrainingAttendance[]
 
   @@index([tcUserId])
+  @@index([recruitedByUserId])
   @@index([status])
+  @@index([reviewStatus])
   @@index([compliance])
   @@index([geoProvince])
   @@index([geoDistrict])
   @@index([name])
   @@map("agents")
+}
+
+/// Shareable registration link for a TC or COA.
+model InviteLink {
+  id          String   @id @default(cuid())
+  token       String   @unique
+  ownerUserId String   @map("owner_user_id")
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  owner User @relation("InviteLinkOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerUserId])
+  @@index([token])
+  @@map("invite_links")
+}
+
+model TrainingSession {
+  id          String   @id @default(cuid())
+  title       String?
+  sessionDate DateTime @map("session_date") @db.Date
+  uploadedByUserId String @map("uploaded_by_user_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  uploadedBy  User @relation("TrainingUploader", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+  attendance  TrainingAttendance[]
+
+  @@index([sessionDate])
+  @@map("training_sessions")
+}
+
+model TrainingAttendance {
+  id               String  @id @default(cuid())
+  sessionId        String  @map("session_id")
+  agentId          String? @map("agent_id")
+  email            String
+  attended         Boolean @default(true)
+  followUpNote     String? @map("follow_up_note")
+
+  session TrainingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  agent   Agent?          @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId])
+  @@index([agentId])
+  @@index([email])
+  @@map("training_attendance")
+}
+
+model SupportLog {
+  id          String         @id @default(cuid())
+  tcUserId    String         @map("tc_user_id")
+  agentId     String         @map("agent_id")
+  supportedAt DateTime       @map("supported_at")
+  channel     SupportChannel @default(phone)
+  summary     String
+  outcome     String?
+  createdAt   DateTime       @default(now()) @map("created_at")
+
+  tcUser User  @relation("SupportLogTc", fields: [tcUserId], references: [id], onDelete: Restrict)
+  agent  Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([tcUserId])
+  @@index([agentId])
+  @@index([supportedAt])
+  @@map("support_logs")
 }
 
 model AgentAssignment {

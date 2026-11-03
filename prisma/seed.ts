@@ -40,20 +40,6 @@ const SEED_USERS: SeedUser[] = [
     phone: "+250780000001",
   },
   {
-    email: "ops@solektra.rw",
-    name: "Ops Manager",
-    role: "OPERATIONS_MANAGER",
-    password: "Samu@Ops1",
-    phone: "+250780000002",
-  },
-  {
-    email: "md@solektra.rw",
-    name: "MD Viewer",
-    role: "MD_VIEWER",
-    password: "Samu@Md1",
-    phone: "+250780000003",
-  },
-  {
     email: "tc.kigali@solektra.rw",
     name: "TC Kigali",
     role: "TERRITORY_COORDINATOR",
@@ -66,6 +52,13 @@ const SEED_USERS: SeedUser[] = [
     role: "TERRITORY_COORDINATOR",
     password: "Samu@Tc2",
     phone: "+250780000005",
+  },
+  {
+    email: "coa.demo@solektra.rw",
+    name: "COA Demo",
+    role: "COMMUNITY_OPPORTUNITY_ASSOCIATE",
+    password: "Samu@Coa1",
+    phone: "+250780000007",
   },
   {
     email: "agent.demo@solektra.rw",
@@ -244,7 +237,7 @@ async function seedAgents(userByEmail: Map<string, string>) {
       throw new Error(`Missing seed TC for ${row.tcEmail}`);
     }
 
-    const status = row.status ?? "Active";
+    const status = row.status ?? "Certified";
     const agent = await prisma.agent.upsert({
       where: { id: row.id },
       create: {
@@ -253,7 +246,7 @@ async function seedAgents(userByEmail: Map<string, string>) {
         name: row.name,
         phone: row.phone,
         nidMasked: `1********${row.phone.replace(/\D/g, "").slice(-3)}`,
-        nidVerified: status !== "PendingVerification",
+        nidVerified: status === "Certified",
         status,
         geoProvince: row.province,
         geoDistrict: row.district,
@@ -276,7 +269,7 @@ async function seedAgents(userByEmail: Map<string, string>) {
         name: row.name,
         phone: row.phone,
         nidMasked: `1********${row.phone.replace(/\D/g, "").slice(-3)}`,
-        nidVerified: status !== "PendingVerification",
+        nidVerified: status === "Certified",
         status,
         geoProvince: row.province,
         geoDistrict: row.district,

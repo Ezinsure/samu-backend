@@ -210,7 +210,7 @@ export async function getFilterOptions(viewer: AuthUser) {
 
   const [agents, coordinators] = await Promise.all([
     prisma.agent.findMany({
-      where: { ...agentWhere, status: "Active" },
+      where: { ...agentWhere, status: "Certified" },
       select: { id: true, name: true, code: true },
       orderBy: { name: "asc" },
       take: 200,
@@ -432,7 +432,9 @@ export async function createVisit(
   const gps = evaluateGpsValidation(distance, threshold);
 
   const tcUserId =
-    viewer.role === "TERRITORY_COORDINATOR" ? viewer.id : agent.tcUserId;
+    viewer.role === "TERRITORY_COORDINATOR"
+      ? viewer.id
+      : (agent.tcUserId ?? viewer.id);
   const id = `visit-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
   const fraudId =
     gps.validation === "flagged"

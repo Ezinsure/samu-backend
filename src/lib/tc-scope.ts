@@ -1,6 +1,7 @@
 import type { UserRole } from "@prisma/client";
 import { errors } from "./errors.js";
 import { prisma } from "./prisma.js";
+import { isNationalReader as nationalReader } from "./roles.js";
 
 export type ScopeActor = {
   id: string;
@@ -75,11 +76,7 @@ export async function assertTcTerritoryAccess(
   actor: ScopeActor,
   territoryId: string,
 ): Promise<void> {
-  if (
-    actor.role === "ADMIN" ||
-    actor.role === "OPERATIONS_MANAGER" ||
-    actor.role === "MD_VIEWER"
-  ) {
+  if (nationalReader(actor.role)) {
     return;
   }
 
@@ -97,9 +94,5 @@ export async function assertTcTerritoryAccess(
  * True when the actor may access national (unscoped) data.
  */
 export function isNationalReader(role: UserRole): boolean {
-  return (
-    role === "ADMIN" ||
-    role === "OPERATIONS_MANAGER" ||
-    role === "MD_VIEWER"
-  );
+  return nationalReader(role);
 }
