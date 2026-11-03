@@ -171,19 +171,16 @@ Created by `npm run db:seed` (local / demo only — change or remove before real
 
 | Email | Role | Password |
 | --- | --- | --- |
-| `admin@solektra.rw` | ADMIN | `Samu@Admin1` |
-| `ops@solektra.rw` | OPERATIONS_MANAGER | `Samu@Ops1` |
-| `md@solektra.rw` | MD_VIEWER | `Samu@Md1` |
-| `tc.kigali@solektra.rw` | TERRITORY_COORDINATOR | `Samu@Tc1` |
-| `tc.south@solektra.rw` | TERRITORY_COORDINATOR | `Samu@Tc2` |
-| `agent.demo@solektra.rw` | AGENT | `Samu@Agent1` |
+| `samu_admin@yopmail.com` | ADMIN | `Admin@123` |
+
+`npm run db:seed` / `db:seed:users` creates this admin only. Create TC/COA accounts from **Users & access**.
 
 Quick login check (PowerShell):
 
 ```powershell
 Invoke-RestMethod -Method Post -Uri http://localhost:4000/api/v1/auth/login `
   -ContentType application/json `
-  -Body '{"email":"admin@solektra.rw","password":"Samu@Admin1"}' `
+  -Body '{"email":"samu_admin@yopmail.com","password":"Admin@123"}' `
   -SessionVariable s
 Invoke-RestMethod -Uri http://localhost:4000/api/v1/auth/me -WebSession $s
 ```

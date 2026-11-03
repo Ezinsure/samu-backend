@@ -31,41 +31,14 @@ type SeedTerritory = {
  * Local/demo accounts for every SAMU role.
  * Passwords match DOCs/SAMU-Backend-Implementation-Phases.md — never use in production.
  */
+/** Fresh UAT seed: admin only — create TC/COA accounts from the app. */
 const SEED_USERS: SeedUser[] = [
   {
-    email: "admin@solektra.rw",
+    email: "samu_admin@yopmail.com",
     name: "SAMU Admin",
     role: "ADMIN",
-    password: "Samu@Admin1",
+    password: "Admin@123",
     phone: "+250780000001",
-  },
-  {
-    email: "tc.kigali@solektra.rw",
-    name: "TC Kigali",
-    role: "TERRITORY_COORDINATOR",
-    password: "Samu@Tc1",
-    phone: "+250780000004",
-  },
-  {
-    email: "tc.south@solektra.rw",
-    name: "TC South",
-    role: "TERRITORY_COORDINATOR",
-    password: "Samu@Tc2",
-    phone: "+250780000005",
-  },
-  {
-    email: "coa.demo@solektra.rw",
-    name: "COA Demo",
-    role: "COMMUNITY_OPPORTUNITY_ASSOCIATE",
-    password: "Samu@Coa1",
-    phone: "+250780000007",
-  },
-  {
-    email: "agent.demo@solektra.rw",
-    name: "Demo Agent",
-    role: "AGENT",
-    password: "Samu@Agent1",
-    phone: "+250780000006",
   },
 ];
 
@@ -136,11 +109,13 @@ function sortTerritoriesForInsert(rows: SeedTerritory[]): SeedTerritory[] {
   return [...rows].sort((a, b) => rank[a.type] - rank[b.type]);
 }
 
-async function seedUsers(): Promise<Map<string, string>> {
-  console.log("Seeding SAMU users (all roles)…");
+async function seedUsers(
+  users: SeedUser[] = SEED_USERS,
+): Promise<Map<string, string>> {
+  console.log(`Seeding SAMU users (${users.length})…`);
   const byEmail = new Map<string, string>();
 
-  for (const seed of SEED_USERS) {
+  for (const seed of users) {
     const passwordHash = await argon2.hash(seed.password, {
       type: argon2.argon2id,
     });
@@ -691,7 +666,7 @@ async function seedVisits(userByEmail: Map<string, string>) {
 async function seedAdmin(userByEmail: Map<string, string>) {
   console.log("Seeding system settings + sample audit…");
 
-  const adminId = userByEmail.get("admin@solektra.rw");
+  const adminId = userByEmail.get("samu_admin@yopmail.com");
   const { DEFAULT_KPI_TARGETS } = await import("../src/lib/reporting.js");
 
   await prisma.systemSettings.upsert({
@@ -766,29 +741,15 @@ async function main() {
   ).toLowerCase();
   console.log(`Seed mode: ${mode}`);
 
-  const userByEmail = await seedUsers();
-
-  if (mode === "users") {
+  if (mode === "users" || mode === "full") {
+    // Product seed is admin-only; demo TC/COA/agent rows were removed for UAT.
+    const userByEmail = await seedUsers();
     await seedAdmin(userByEmail);
-    console.log("Seed complete (users + system settings only).");
+    console.log("Seed complete (admin + system settings only).");
     return;
   }
 
-  if (mode !== "full") {
-    throw new Error(`Unknown SEED_MODE="${mode}". Use "full" or "users".`);
-  }
-
-  await seedTerritories(userByEmail);
-  await seedAgents(userByEmail);
-  await seedLeads(userByEmail);
-  await seedActivities(userByEmail);
-  await seedOnboarding(userByEmail);
-  await seedSales(userByEmail);
-  await seedFeedback(userByEmail);
-  await seedVisits(userByEmail);
-  await seedReports(userByEmail);
-  await seedAdmin(userByEmail);
-  console.log("Seed complete.");
+  throw new Error(`Unknown SEED_MODE="${mode}". Use "full" or "users".`);
 }
 
 async function seedReports(userByEmail: Map<string, string>) {
