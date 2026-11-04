@@ -15,19 +15,25 @@ const INSIGHT_READERS = [
   "TERRITORY_COORDINATOR",
 ] as const;
 
+/** Programme / field dashboard readers (includes COA). */
+const COAP_DASHBOARD_READERS = [
+  ...INSIGHT_READERS,
+  "COMMUNITY_OPPORTUNITY_ASSOCIATE",
+] as const;
+
 export const insightsRouter = Router();
 
 insightsRouter.use(authenticate);
 
 insightsRouter.get(
   "/coap-dashboard",
-  requireRoles(...INSIGHT_READERS),
+  requireRoles(...COAP_DASHBOARD_READERS),
   coapDashboard,
 );
 
 insightsRouter.get(
   "/coap-filter-options",
-  requireRoles(...INSIGHT_READERS),
+  requireRoles(...COAP_DASHBOARD_READERS),
   coapFilterOptions,
 );
 
