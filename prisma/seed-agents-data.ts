@@ -47,7 +47,7 @@ const TC_SOUTH = "tc.south@solektra.rw";
 /**
  * Mirrors frontend/data/agents.ts (stable ids) with TC emails instead of demo user ids.
  */
-export const SEED_AGENTS: SeedAgentRow[] = [
+export const SEED_AGENTS = [
   { id: "agent-001", code: "AGT-KGL-001", name: "Alice Mukamana", phone: "+250780000101", province: "Kigali City", district: "Gasabo", sector: "Remera", cell: "Rukiri I", tcEmail: TC_KIGALI, lat: -1.9536, lng: 30.1207, compliance: "green", lastVisitAt: "2026-09-10T09:20:00.000Z", clientsRegistered: 42 },
   { id: "agent-002", code: "AGT-KGL-002", name: "Bosco Habimana", phone: "+250780000102", province: "Kigali City", district: "Gasabo", sector: "Kimironko", cell: "Kibagabaga", tcEmail: TC_KIGALI, lat: -1.9395, lng: 30.1302, compliance: "yellow", lastVisitAt: "2026-07-28T11:00:00.000Z", services: defaultServices({ printer: false, internetType: "MTN" }), clientsRegistered: 18 },
   { id: "agent-003", code: "AGT-KGL-003", name: "Chantal Ingabire", phone: "+250780000103", province: "Kigali City", district: "Kicukiro", sector: "Kanombe", cell: "Busanza", tcEmail: TC_KIGALI, lat: -1.9801, lng: 30.1684, compliance: "red", lastVisitAt: "2026-06-01T14:10:00.000Z", services: defaultServices({ insuranceTools: false, internetAvailable: false }), clientsRegistered: 9 },
@@ -91,4 +91,4 @@ export const SEED_AGENTS: SeedAgentRow[] = [
 ].map((row) => ({
   ...row,
   services: row.services ?? defaultServices(),
-}));
+})) as SeedAgentRow[];
