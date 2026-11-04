@@ -43,8 +43,21 @@ inviteLinksRouter.get(
   async (req, res, next) => {
     try {
       if (!req.user) throw errors.unauthorized();
-      const data = await service.listPendingReviews(req.user);
-      res.json({ data });
+      const page = Number(req.query.page) || 1;
+      const pageSize = Number(req.query.pageSize) || 10;
+      const result = await service.listPendingReviews(req.user, {
+        page,
+        pageSize,
+      });
+      res.json({
+        data: result.data,
+        meta: {
+          page: result.page,
+          pageSize: result.pageSize,
+          total: result.total,
+          totalPages: result.totalPages,
+        },
+      });
     } catch (error) {
       next(error);
     }

@@ -40,7 +40,13 @@ export async function getOrCreateInviteLink(actor: AuthUser) {
   };
 }
 
-export async function listPendingReviews(actor: AuthUser) {
+export async function listPendingReviews(
+  actor: AuthUser,
+  query: { page?: number; pageSize?: number } = {},
+) {
+  const page = Math.max(1, query.page ?? 1);
+  const pageSize = Math.min(50, Math.max(1, query.pageSize ?? 10));
+
   const where =
     actor.role === "ADMIN"
       ? { reviewStatus: "pending_review" as const }
@@ -49,25 +55,53 @@ export async function listPendingReviews(actor: AuthUser) {
           recruitedByUserId: actor.id,
         };
 
-  const rows = await prisma.agent.findMany({
-    where,
-    include: {
-      recruitedBy: { select: { name: true } },
-      tcUser: { select: { name: true } },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 100,
-  });
+  const [total, rows] = await Promise.all([
+    prisma.agent.count({ where }),
+    prisma.agent.findMany({
+      where,
+      include: {
+        recruitedBy: { select: { name: true } },
+        tcUser: { select: { name: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+  ]);
 
-  return rows.map((a) => ({
-    id: a.id,
-    code: a.code,
-    name: a.name,
-    phone: a.phone,
-    email: a.email,
-    district: a.geoDistrict,
-    createdAt: a.createdAt.toISOString(),
-    recruitedByName: a.recruitedBy?.name,
-    tcName: a.tcUser?.name,
-  }));
+  return {
+    data: rows.map((a) => ({
+      id: a.id,
+      code: a.code,
+      name: a.name,
+      phone: a.phone,
+      email: a.email,
+      age: a.age,
+      gender: a.gender,
+      education: a.education,
+      tin: a.tin,
+      businessType: a.businessType,
+      venue: a.venue,
+      emergencyContactName: a.emergencyContactName,
+      emergencyContactPhone: a.emergencyContactPhone,
+      criminalRecordBillId: a.criminalRecordBillId,
+      hasPrinterScanner: a.hasPrinterScanner,
+      hasComputer: a.hasComputer,
+      officeType: a.officeType,
+      building: a.building,
+      province: a.geoProvince,
+      district: a.geoDistrict,
+      sector: a.geoSector,
+      cell: a.geoCell,
+      village: a.geoVillage,
+      status: a.status,
+      createdAt: a.createdAt.toISOString(),
+      recruitedByName: a.recruitedBy?.name,
+      tcName: a.tcUser?.name,
+    })),
+    page,
+    pageSize,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+  };
 }
