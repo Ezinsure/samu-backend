@@ -169,16 +169,33 @@ export async function uploadVisitPhoto(opts: {
   });
 }
 
+function safeDownloadFileName(fileName: string): string {
+  const cleaned = fileName.replace(/[^\w.\- ()[\]]+/g, "_").trim();
+  return (cleaned || "file").slice(0, 120);
+}
+
 /**
  * Short-lived signed GET URL for a private object (photos, COA evidence, etc.).
+ * Forces a Content-Disposition so browsers treat downloads as attachments/inline
+ * rather than executable sniffing of the object key.
  */
 export async function getSignedObjectUrl(
   storageKey: string,
   expiresInSeconds = 3600,
+  opts?: {
+    fileName?: string;
+    disposition?: "inline" | "attachment";
+    contentType?: string;
+  },
 ): Promise<string> {
+  const disposition = opts?.disposition ?? "inline";
+  const safeName = safeDownloadFileName(opts?.fileName ?? "file");
+  const encoded = encodeURIComponent(safeName);
   const command = new GetObjectCommand({
     Bucket: env.S3_BUCKET,
     Key: storageKey,
+    ResponseContentDisposition: `${disposition}; filename="${safeName}"; filename*=UTF-8''${encoded}`,
+    ...(opts?.contentType ? { ResponseContentType: opts.contentType } : {}),
   });
   return getSignedUrl(getClient(), command, { expiresIn: expiresInSeconds });
 }

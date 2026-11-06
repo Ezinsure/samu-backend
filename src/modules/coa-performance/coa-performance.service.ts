@@ -567,7 +567,11 @@ export async function getEvidenceFileViewUrl(fileId: string, actor: AuthUser) {
     canActAsCoa(actor.role) && file.entry.coaUserId === actor.id;
   if (!isNational && !isOwner) throw errors.forbidden();
 
-  const url = await getSignedObjectUrl(file.storageKey, 900);
+  const url = await getSignedObjectUrl(file.storageKey, 900, {
+    fileName: file.originalName,
+    contentType: file.contentType,
+    disposition: "inline",
+  });
   return {
     id: file.id,
     url,

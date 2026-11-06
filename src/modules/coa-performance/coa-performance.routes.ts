@@ -29,9 +29,23 @@ const writeLimiter = rateLimit({
   },
 });
 
+const ALLOWED_UPLOAD_MIME = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_UPLOAD_MIME.has(file.mimetype)) {
+      cb(null, true);
+      return;
+    }
+    cb(new Error("Only PDF or image files (JPEG, PNG, WebP) are allowed"));
+  },
 });
 
 const ACTORS = ["ADMIN", "COMMUNITY_OPPORTUNITY_ASSOCIATE"] as const;

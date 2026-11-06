@@ -163,17 +163,18 @@ Create the bucket in the provider console first. Local MinIO credentials match D
 | `npm run prisma:migrate` | Create/apply migrations (dev) |
 | `npm run prisma:deploy` | Apply migrations (CI / production) |
 | `npm run prisma:studio` | Open Prisma Studio |
-| `npm run db:seed` | Seed users, geo, agents, COAP, visits, fraud, reports, settings |
+| `npm run db:seed` / `db:seed:uat` | Seed admin + system settings + COA imihigo metrics |
+| `npm run db:reset:uat` | Migrate reset, then UAT seed (staging wipe) |
 
 ## Seeded demo accounts
 
-Created by `npm run db:seed` (local / demo only — change or remove before real UAT).
+Created by `npm run db:seed` / `db:seed:uat` (local / staging only — change before production).
 
 | Email | Role | Password |
 | --- | --- | --- |
 | `samu_admin@yopmail.com` | ADMIN | `Admin@123` |
 
-`npm run db:seed` / `db:seed:users` creates this admin only. Create TC/COA accounts from **Users & access**.
+Creates this admin plus the shared COA metrics catalog. Create TC/COA accounts from **Users & access** (or **Import COAs**).
 
 Quick login check (PowerShell):
 
@@ -189,11 +190,19 @@ Invoke-RestMethod -Uri http://localhost:4000/api/v1/auth/me -WebSession $s
 
 | Area | Capabilities |
 | --- | --- |
-| Auth & users | Login/logout/refresh, register (pending agent), profile, password reset, admin user management |
+| Auth & users | Login/logout/refresh, register (pending agent), profile + avatar, password reset, admin user management, COA Excel import |
 | Network | Territories, agents, GPS field visits, photo upload, fraud review |
+| COA imihigo | Metrics catalog (`/coa-metrics`), evidence logging (`/coa-performance`), admin month report + CSV |
 | COAP | Leads, field activities, onboarding, sales, feedback, service workspaces, dashboard insights |
 | Oversight | Monthly reports, scorecards, analytics, maps workspace |
 | Admin | System settings, audit log, SMS messaging stub |
+
+### COA performance (Admin)
+
+1. **COA metrics** — enable/disable lines and edit monthly targets.
+2. **Import COAs** — Users & access → Excel/CSV + Resend set-password invites.
+3. **COA performance** — month filter, attainment bars, evidence drill-down, CSV export.
+4. COAs log evidence under **My performance** (`/performance`); Irembo counts from recruits/invite links.
 
 All versioned routes are under `/api/v1/...`. Auth uses httpOnly cookies (`samu_access`, `samu_refresh`); browser clients must send `credentials: "include"`.
 
