@@ -345,25 +345,52 @@ function toPublicEntry(entry: {
   };
 }
 
+function isYearMonth(value?: string): value is string {
+  return Boolean(value && /^\d{4}-\d{2}$/.test(value));
+}
+
 export async function listMyEntries(
   viewer: AuthUser,
-  opts: { month?: string; metricKey?: string } = {},
+  opts: {
+    month?: string;
+    monthFrom?: string;
+    monthTo?: string;
+    metricKey?: string;
+  } = {},
 ) {
   if (!canActAsCoa(viewer.role)) throw errors.forbidden();
-  const month =
-    opts.month && /^\d{4}-\d{2}$/.test(opts.month)
-      ? opts.month
-      : currentUtcMonth();
+
+  const hasRange = isYearMonth(opts.monthFrom) || isYearMonth(opts.monthTo);
+  const month = isYearMonth(opts.month) ? opts.month : currentUtcMonth();
+  const monthFrom = isYearMonth(opts.monthFrom)
+    ? opts.monthFrom
+    : hasRange
+      ? month
+      : undefined;
+  const monthTo = isYearMonth(opts.monthTo)
+    ? opts.monthTo
+    : hasRange
+      ? month
+      : undefined;
+
+  if (monthFrom && monthTo && monthFrom > monthTo) {
+    throw errors.badRequest("monthFrom must be on or before monthTo");
+  }
 
   const metric = opts.metricKey
     ? await prisma.coaMetric.findUnique({ where: { key: opts.metricKey } })
     : null;
   if (opts.metricKey && !metric) throw errors.notFound("Metric not found");
 
+  const monthFilter =
+    monthFrom && monthTo
+      ? { gte: monthFrom, lte: monthTo }
+      : month;
+
   const rows = await prisma.coaPerformanceEntry.findMany({
     where: {
       coaUserId: viewer.id,
-      month,
+      month: monthFilter,
       ...(metric ? { metricId: metric.id } : {}),
     },
     include: {
@@ -374,11 +401,16 @@ export async function listMyEntries(
       files: { orderBy: { createdAt: "desc" } },
       _count: { select: { clientRows: true, files: true } },
     },
-    orderBy: { loggedAt: "desc" },
-    take: 100,
+    orderBy: [{ month: "desc" }, { loggedAt: "desc" }],
+    take: monthFrom && monthTo ? 400 : 100,
   });
 
-  return { month, data: rows.map(toPublicEntry) };
+  return {
+    month,
+    monthFrom: monthFrom ?? month,
+    monthTo: monthTo ?? month,
+    data: rows.map(toPublicEntry),
+  };
 }
 
 export async function createEntry(

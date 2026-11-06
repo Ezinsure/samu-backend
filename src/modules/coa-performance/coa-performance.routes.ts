@@ -138,15 +138,30 @@ coaPerformanceRouter.get(
       if (!req.user) throw errors.unauthorized();
       const month =
         typeof req.query.month === "string" ? req.query.month : undefined;
+      const monthFrom =
+        typeof req.query.monthFrom === "string"
+          ? req.query.monthFrom
+          : undefined;
+      const monthTo =
+        typeof req.query.monthTo === "string" ? req.query.monthTo : undefined;
       const metricKey =
         typeof req.query.metricKey === "string"
           ? req.query.metricKey
           : undefined;
       const result = await service.listMyEntries(req.user, {
         month,
+        monthFrom,
+        monthTo,
         metricKey,
       });
-      res.json({ data: result.data, meta: { month: result.month } });
+      res.json({
+        data: result.data,
+        meta: {
+          month: result.month,
+          monthFrom: result.monthFrom,
+          monthTo: result.monthTo,
+        },
+      });
     } catch (error) {
       next(error);
     }
