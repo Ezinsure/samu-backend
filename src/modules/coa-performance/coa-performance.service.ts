@@ -48,15 +48,12 @@ function blankToNull(value?: string): string | null {
   return trimmed ? trimmed : null;
 }
 
-export async function getMyProgress(viewer: AuthUser, month?: string) {
-  if (!canActAsCoa(viewer.role)) throw errors.forbidden();
-
-  const period =
-    month && /^\d{4}-\d{2}$/.test(month) ? month : currentUtcMonth();
-  const metrics = await listMetrics(viewer, { includeDisabled: false });
+async function progressForCoa(
+  coaUserId: string,
+  period: string,
+  metrics: Awaited<ReturnType<typeof listMetrics>>,
+) {
   const enabled = metrics.filter((m) => m.enabled);
-
-  const coaUserId = viewer.id;
   const entries = await prisma.coaPerformanceEntry.findMany({
     where: { coaUserId, month: period },
     include: {
@@ -79,16 +76,15 @@ export async function getMyProgress(viewer: AuthUser, month?: string) {
     });
   }
 
-  let iremboCount = 0;
   const { start, end } = monthBounds(period);
-  iremboCount = await prisma.agent.count({
+  const iremboCount = await prisma.agent.count({
     where: {
       recruitedByUserId: coaUserId,
       createdAt: { gte: start, lt: end },
     },
   });
 
-  const rows = enabled.map((metric) => {
+  return enabled.map((metric) => {
     const totals = totalsByMetric.get(metric.id) ?? {
       clients: 0,
       files: 0,
@@ -111,10 +107,182 @@ export async function getMyProgress(viewer: AuthUser, month?: string) {
         metric.monthlyTarget > 0
           ? Math.min(100, Math.round((actual / metric.monthlyTarget) * 100))
           : 0,
+      met: actual >= metric.monthlyTarget,
     };
   });
+}
 
+export async function getMyProgress(viewer: AuthUser, month?: string) {
+  if (!canActAsCoa(viewer.role)) throw errors.forbidden();
+
+  const period =
+    month && /^\d{4}-\d{2}$/.test(month) ? month : currentUtcMonth();
+  const metrics = await listMetrics(viewer, { includeDisabled: false });
+  const rows = await progressForCoa(viewer.id, period, metrics);
   return { month: period, rows };
+}
+
+function assertAdmin(viewer: AuthUser) {
+  if (viewer.role !== "ADMIN") throw errors.forbidden();
+}
+
+/** Admin national board: every active COA vs shared enabled metrics for a month. */
+export async function getAdminMonthReport(viewer: AuthUser, month?: string) {
+  assertAdmin(viewer);
+  const period =
+    month && /^\d{4}-\d{2}$/.test(month) ? month : currentUtcMonth();
+  const metrics = await listMetrics(viewer, { includeDisabled: false });
+  const enabled = metrics.filter((m) => m.enabled);
+
+  const coas = await prisma.user.findMany({
+    where: { role: "COMMUNITY_OPPORTUNITY_ASSOCIATE", status: "active" },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phone: true,
+      workingDistrict: true,
+    },
+    orderBy: { name: "asc" },
+  });
+
+  const rows = [];
+  for (const coa of coas) {
+    const progress = await progressForCoa(coa.id, period, metrics);
+    const metricsMet = progress.filter((p) => p.met).length;
+    const overallPercent =
+      progress.length === 0
+        ? 0
+        : Math.round(
+            progress.reduce((sum, p) => sum + p.percent, 0) / progress.length,
+          );
+    rows.push({
+      coa: {
+        id: coa.id,
+        name: coa.name,
+        email: coa.email,
+        phone: coa.phone ?? undefined,
+        workingDistrict: coa.workingDistrict ?? undefined,
+      },
+      progress,
+      metricsMet,
+      metricsTotal: progress.length,
+      overallPercent,
+    });
+  }
+
+  return {
+    month: period,
+    metrics: enabled,
+    rows,
+    totals: {
+      coaCount: rows.length,
+      averageOverallPercent:
+        rows.length === 0
+          ? 0
+          : Math.round(
+              rows.reduce((s, r) => s + r.overallPercent, 0) / rows.length,
+            ),
+    },
+  };
+}
+
+export function adminReportToCsv(
+  report: Awaited<ReturnType<typeof getAdminMonthReport>>,
+): string {
+  const metricKeys = report.metrics.map((m) => m.key);
+  const header = [
+    "coaName",
+    "email",
+    "workingDistrict",
+    "metricsMet",
+    "metricsTotal",
+    "overallPercent",
+    ...metricKeys.flatMap((key) => [`${key}_actual`, `${key}_target`]),
+  ].join(",");
+
+  const escape = (value: string | number | undefined) => {
+    const raw = value == null ? "" : String(value);
+    if (/[",\n]/.test(raw)) return `"${raw.replace(/"/g, '""')}"`;
+    return raw;
+  };
+
+  const lines = report.rows.map((row) => {
+    const byKey = new Map(row.progress.map((p) => [p.metric.key, p]));
+    const metricCols = metricKeys.flatMap((key) => {
+      const p = byKey.get(key);
+      return [p?.actual ?? 0, p?.target ?? 0];
+    });
+    return [
+      escape(row.coa.name),
+      escape(row.coa.email),
+      escape(row.coa.workingDistrict),
+      row.metricsMet,
+      row.metricsTotal,
+      row.overallPercent,
+      ...metricCols,
+    ].join(",");
+  });
+
+  return `${header}\n${lines.join("\n")}\n`;
+}
+
+/** Admin drill-down: one COA's progress + evidence entries for the month. */
+export async function getAdminCoaDetail(
+  viewer: AuthUser,
+  coaUserId: string,
+  month?: string,
+) {
+  assertAdmin(viewer);
+  const period =
+    month && /^\d{4}-\d{2}$/.test(month) ? month : currentUtcMonth();
+
+  const coa = await prisma.user.findFirst({
+    where: {
+      id: coaUserId,
+      role: "COMMUNITY_OPPORTUNITY_ASSOCIATE",
+    },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phone: true,
+      workingDistrict: true,
+      workingProvince: true,
+    },
+  });
+  if (!coa) throw errors.notFound("COA not found");
+
+  const metrics = await listMetrics(viewer, { includeDisabled: false });
+  const progress = await progressForCoa(coa.id, period, metrics);
+
+  const entryRows = await prisma.coaPerformanceEntry.findMany({
+    where: { coaUserId: coa.id, month: period },
+    include: {
+      metric: {
+        select: { key: true, label: true, evidenceType: true },
+      },
+      clientRows: { orderBy: { createdAt: "desc" } },
+      files: { orderBy: { createdAt: "desc" } },
+      _count: { select: { clientRows: true, files: true } },
+    },
+    orderBy: { loggedAt: "desc" },
+    take: 200,
+  });
+
+  return {
+    month: period,
+    coa: {
+      id: coa.id,
+      name: coa.name,
+      email: coa.email,
+      phone: coa.phone ?? undefined,
+      workingDistrict: coa.workingDistrict ?? undefined,
+      workingProvince: coa.workingProvince ?? undefined,
+    },
+    progress,
+    entries: entryRows.map(toPublicEntry),
+  };
 }
 
 function toPublicEntry(entry: {

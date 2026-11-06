@@ -59,6 +59,64 @@ coaPerformanceRouter.get(
 );
 
 coaPerformanceRouter.get(
+  "/admin/report",
+  requireRoles("ADMIN"),
+  async (req, res, next) => {
+    try {
+      if (!req.user) throw errors.unauthorized();
+      const month =
+        typeof req.query.month === "string" ? req.query.month : undefined;
+      const data = await service.getAdminMonthReport(req.user, month);
+      res.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+coaPerformanceRouter.get(
+  "/admin/report.csv",
+  requireRoles("ADMIN"),
+  async (req, res, next) => {
+    try {
+      if (!req.user) throw errors.unauthorized();
+      const month =
+        typeof req.query.month === "string" ? req.query.month : undefined;
+      const report = await service.getAdminMonthReport(req.user, month);
+      const csv = service.adminReportToCsv(report);
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="coa-performance-${report.month}.csv"`,
+      );
+      res.send(csv);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+coaPerformanceRouter.get(
+  "/admin/coas/:coaUserId",
+  requireRoles("ADMIN"),
+  async (req, res, next) => {
+    try {
+      if (!req.user) throw errors.unauthorized();
+      const month =
+        typeof req.query.month === "string" ? req.query.month : undefined;
+      const data = await service.getAdminCoaDetail(
+        req.user,
+        String(req.params.coaUserId),
+        month,
+      );
+      res.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+coaPerformanceRouter.get(
   "/entries",
   requireRoles(...ACTORS),
   async (req, res, next) => {
