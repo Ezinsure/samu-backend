@@ -1,7 +1,9 @@
 import { prisma } from "../../lib/prisma.js";
 import { errors } from "../../lib/errors.js";
+import { writeAuditLog } from "../../lib/audit.js";
 import type { AuthUser } from "../../types/express.js";
 import { COA_METRIC_CATALOG } from "./coa-metrics.catalog.js";
+import type { UpdateCoaMetricInput } from "./coa-metrics.schemas.js";
 
 function canReadCatalog(role: AuthUser["role"]): boolean {
   return (
@@ -108,5 +110,42 @@ export async function getMetricByKey(
   if (!row.enabled && viewer.role !== "ADMIN") {
     throw errors.forbidden();
   }
+  return toPublic(row);
+}
+
+export async function updateMetric(
+  key: string,
+  input: UpdateCoaMetricInput,
+  actor: AuthUser,
+): Promise<PublicCoaMetric> {
+  if (actor.role !== "ADMIN") throw errors.forbidden();
+
+  const existing = await prisma.coaMetric.findUnique({ where: { key } });
+  if (!existing) throw errors.notFound("Metric not found");
+
+  const row = await prisma.coaMetric.update({
+    where: { key },
+    data: {
+      ...(input.label !== undefined ? { label: input.label } : {}),
+      ...(input.description !== undefined
+        ? { description: input.description }
+        : {}),
+      ...(input.adminNote !== undefined ? { adminNote: input.adminNote } : {}),
+      ...(input.monthlyTarget !== undefined
+        ? { monthlyTarget: input.monthlyTarget }
+        : {}),
+      ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+      ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
+    },
+  });
+
+  await writeAuditLog({
+    actorUserId: actor.id,
+    action: "coa_metric.update",
+    objectType: "coa_metric",
+    objectId: row.id,
+    summary: `Updated metric ${row.key} (enabled=${row.enabled}, target=${row.monthlyTarget})`,
+  });
+
   return toPublic(row);
 }

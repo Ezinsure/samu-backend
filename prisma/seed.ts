@@ -126,12 +126,11 @@ async function seedCoaMetrics(): Promise<void> {
         sortOrder: seed.sortOrder,
       },
       update: {
+        // Preserve Admin edits to target/enabled; refresh copy + evidence type only.
         label: seed.label,
         description: seed.description,
         adminNote: seed.adminNote ?? null,
-        monthlyTarget: seed.monthlyTarget,
         evidenceType: seed.evidenceType,
-        enabled: seed.enabled,
         sortOrder: seed.sortOrder,
       },
     });
