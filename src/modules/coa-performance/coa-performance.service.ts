@@ -1,11 +1,24 @@
 import { prisma } from "../../lib/prisma.js";
 import { errors } from "../../lib/errors.js";
+import {
+  getSignedObjectUrl,
+  uploadCoaEvidenceFile,
+} from "../../lib/storage.js";
 import type { AuthUser } from "../../types/express.js";
 import { listMetrics } from "../coa-metrics/coa-metrics.service.js";
 import {
   CLIENT_FIELD_REQUIREMENTS,
   type CreatePerformanceEntryInput,
 } from "./coa-performance.schemas.js";
+
+const ALLOWED_EVIDENCE_TYPES = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
+const MAX_EVIDENCE_BYTES = 10 * 1024 * 1024;
 
 function canActAsCoa(role: AuthUser["role"]): boolean {
   return (
@@ -220,26 +233,9 @@ export async function createEntry(
   }
 
   if (metric.evidenceType === "file_upload") {
-    // Phase 4 adds R2 uploads; allow notes-only placeholder entry for now.
-    const entry = await prisma.coaPerformanceEntry.create({
-      data: {
-        metricId: metric.id,
-        coaUserId: actor.id,
-        month: input.month,
-        notes:
-          input.notes?.trim() ||
-          "Placeholder — attach signed documents when uploads open.",
-      },
-      include: {
-        metric: {
-          select: { key: true, label: true, evidenceType: true },
-        },
-        clientRows: true,
-        files: true,
-        _count: { select: { clientRows: true, files: true } },
-      },
-    });
-    return toPublicEntry(entry);
+    throw errors.badRequest(
+      "Use the evidence file upload endpoint for this metric",
+    );
   }
 
   // client_rows
@@ -318,5 +314,122 @@ export async function deleteClientRow(clientId: string, actor: AuthUser) {
   }
 
   await prisma.coaEvidenceClient.delete({ where: { id: clientId } });
+  return { deleted: true };
+}
+
+export async function attachEvidenceFile(
+  input: {
+    metricKey: string;
+    month: string;
+    notes?: string;
+    file: {
+      buffer: Buffer;
+      originalname: string;
+      mimetype: string;
+      size: number;
+    };
+  },
+  actor: AuthUser,
+) {
+  if (!canActAsCoa(actor.role)) throw errors.forbidden();
+
+  const metric = await prisma.coaMetric.findUnique({
+    where: { key: input.metricKey },
+  });
+  if (!metric || !metric.enabled) {
+    throw errors.badRequest("Metric is unavailable");
+  }
+  if (metric.evidenceType !== "file_upload") {
+    throw errors.badRequest("This metric does not accept file evidence");
+  }
+  if (!ALLOWED_EVIDENCE_TYPES.has(input.file.mimetype)) {
+    throw errors.badRequest("Only PDF or image files (JPEG, PNG, WebP) are allowed");
+  }
+  if (input.file.size > MAX_EVIDENCE_BYTES) {
+    throw errors.badRequest("File must be ≤ 10 MB");
+  }
+
+  const uploaded = await uploadCoaEvidenceFile({
+    uploaderUserId: actor.id,
+    fileName: input.file.originalname || "evidence.pdf",
+    contentType: input.file.mimetype,
+    body: input.file.buffer,
+  });
+
+  const entry = await prisma.coaPerformanceEntry.create({
+    data: {
+      metricId: metric.id,
+      coaUserId: actor.id,
+      month: input.month,
+      notes: input.notes?.trim() || null,
+      files: {
+        create: {
+          storageKey: uploaded.storageKey,
+          originalName: input.file.originalname || "evidence.pdf",
+          contentType: uploaded.contentType,
+          sizeBytes: uploaded.sizeBytes,
+        },
+      },
+    },
+    include: {
+      metric: {
+        select: { key: true, label: true, evidenceType: true },
+      },
+      clientRows: true,
+      files: { orderBy: { createdAt: "desc" } },
+      _count: { select: { clientRows: true, files: true } },
+    },
+  });
+
+  return toPublicEntry(entry);
+}
+
+export async function getEvidenceFileViewUrl(fileId: string, actor: AuthUser) {
+  const file = await prisma.coaEvidenceFile.findUnique({
+    where: { id: fileId },
+    include: { entry: true },
+  });
+  if (!file) throw errors.notFound("File not found");
+
+  const isNational =
+    actor.role === "ADMIN" ||
+    actor.role === "OPERATIONS_MANAGER" ||
+    actor.role === "MD_VIEWER";
+  const isOwner =
+    canActAsCoa(actor.role) && file.entry.coaUserId === actor.id;
+  if (!isNational && !isOwner) throw errors.forbidden();
+
+  const url = await getSignedObjectUrl(file.storageKey, 900);
+  return {
+    id: file.id,
+    url,
+    originalName: file.originalName,
+    contentType: file.contentType,
+    sizeBytes: file.sizeBytes,
+    expiresInSeconds: 900,
+  };
+}
+
+export async function deleteEvidenceFile(fileId: string, actor: AuthUser) {
+  if (!canActAsCoa(actor.role)) throw errors.forbidden();
+
+  const file = await prisma.coaEvidenceFile.findUnique({
+    where: { id: fileId },
+    include: { entry: true },
+  });
+  if (!file) throw errors.notFound("File not found");
+  if (file.entry.coaUserId !== actor.id && actor.role !== "ADMIN") {
+    throw errors.forbidden();
+  }
+
+  const entryId = file.entryId;
+  await prisma.coaEvidenceFile.delete({ where: { id: fileId } });
+
+  const remaining = await prisma.coaEvidenceFile.count({ where: { entryId } });
+  const clients = await prisma.coaEvidenceClient.count({ where: { entryId } });
+  if (remaining === 0 && clients === 0) {
+    await prisma.coaPerformanceEntry.delete({ where: { id: entryId } });
+  }
+
   return { deleted: true };
 }

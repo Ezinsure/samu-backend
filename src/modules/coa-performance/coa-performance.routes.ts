@@ -1,9 +1,14 @@
 import { Router } from "express";
+import multer from "multer";
 import rateLimit from "express-rate-limit";
+import { z } from "zod";
 import { authenticate } from "../../middleware/authenticate.js";
 import { requireRoles, requireWrite } from "../../middleware/rbac.js";
 import { errors } from "../../lib/errors.js";
-import { createPerformanceEntrySchema } from "./coa-performance.schemas.js";
+import {
+  createPerformanceEntrySchema,
+  monthSchema,
+} from "./coa-performance.schemas.js";
 import * as service from "./coa-performance.service.js";
 
 export const coaPerformanceRouter = Router();
@@ -24,7 +29,18 @@ const writeLimiter = rateLimit({
   },
 });
 
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+});
+
 const ACTORS = ["ADMIN", "COMMUNITY_OPPORTUNITY_ASSOCIATE"] as const;
+const FILE_VIEWERS = [
+  "ADMIN",
+  "COMMUNITY_OPPORTUNITY_ASSOCIATE",
+  "OPERATIONS_MANAGER",
+  "MD_VIEWER",
+] as const;
 
 coaPerformanceRouter.get(
   "/me",
@@ -82,6 +98,62 @@ coaPerformanceRouter.post(
   },
 );
 
+coaPerformanceRouter.post(
+  "/evidence-files",
+  writeLimiter,
+  requireWrite,
+  requireRoles(...ACTORS),
+  upload.single("file"),
+  async (req, res, next) => {
+    try {
+      if (!req.user) throw errors.unauthorized();
+      const file = req.file;
+      if (!file) throw errors.badRequest("file is required");
+      const fields = z
+        .object({
+          metricKey: z.string().trim().min(2).max(80),
+          month: monthSchema,
+          notes: z.string().trim().max(2000).optional(),
+        })
+        .parse(req.body);
+      const data = await service.attachEvidenceFile(
+        {
+          metricKey: fields.metricKey,
+          month: fields.month,
+          notes: fields.notes,
+          file: {
+            buffer: file.buffer,
+            originalname: file.originalname,
+            mimetype: file.mimetype,
+            size: file.size,
+          },
+        },
+        req.user,
+      );
+      res.status(201).json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+coaPerformanceRouter.get(
+  "/files/:id/url",
+  requireRoles(...FILE_VIEWERS),
+  async (req, res, next) => {
+    try {
+      if (!req.user) throw errors.unauthorized();
+      const data = await service.getEvidenceFileViewUrl(
+        String(req.params.id),
+        req.user,
+      );
+      res.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 coaPerformanceRouter.delete(
   "/entries/:id",
   writeLimiter,
@@ -107,6 +179,25 @@ coaPerformanceRouter.delete(
     try {
       if (!req.user) throw errors.unauthorized();
       const data = await service.deleteClientRow(
+        String(req.params.id),
+        req.user,
+      );
+      res.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+coaPerformanceRouter.delete(
+  "/files/:id",
+  writeLimiter,
+  requireWrite,
+  requireRoles(...ACTORS),
+  async (req, res, next) => {
+    try {
+      if (!req.user) throw errors.unauthorized();
+      const data = await service.deleteEvidenceFile(
         String(req.params.id),
         req.user,
       );

@@ -104,27 +104,32 @@ export type UploadedObject = {
   sizeBytes: number;
 };
 
-function storageConfigError(cause: unknown): AppError {
-  logger.error({ err: cause, bucket: env.S3_BUCKET }, "Photo upload to object storage failed");
+function storageConfigError(cause: unknown, kind = "upload"): AppError {
+  logger.error(
+    { err: cause, bucket: env.S3_BUCKET, kind },
+    "Object storage operation failed",
+  );
   return new AppError(
     502,
     "STORAGE_ERROR",
-    "Photo storage rejected the upload. An administrator must confirm the S3/R2 bucket exists and the API token can write objects.",
+    "Object storage rejected the request. An administrator must confirm the S3/R2 bucket exists and the API token can write objects.",
   );
 }
 
 /**
- * Upload a visit photo buffer to MinIO/S3 under visits/{userId}/{uuid}-{safeName}.
+ * Upload a buffer under `{prefix}/{userId}/{uuid}-{safeName}`.
  */
-export async function uploadVisitPhoto(opts: {
+export async function uploadObject(opts: {
+  prefix: string;
   uploaderUserId: string;
   fileName: string;
   contentType: string;
   body: Buffer;
 }): Promise<UploadedObject> {
   await ensureBucket();
+  const safePrefix = opts.prefix.replace(/[^\w.\-/]+/g, "_").replace(/^\/+|\/+$/g, "");
   const safeName = opts.fileName.replace(/[^\w.\-]+/g, "_").slice(0, 120);
-  const storageKey = `visits/${opts.uploaderUserId}/${randomUUID()}-${safeName}`;
+  const storageKey = `${safePrefix}/${opts.uploaderUserId}/${randomUUID()}-${safeName}`;
 
   try {
     await getClient().send(
@@ -147,9 +152,27 @@ export async function uploadVisitPhoto(opts: {
 }
 
 /**
- * Short-lived signed GET URL for a stored photo (private bucket).
+ * Upload a visit photo buffer to MinIO/S3 under visits/{userId}/{uuid}-{safeName}.
  */
-export async function getSignedPhotoUrl(
+export async function uploadVisitPhoto(opts: {
+  uploaderUserId: string;
+  fileName: string;
+  contentType: string;
+  body: Buffer;
+}): Promise<UploadedObject> {
+  return uploadObject({
+    prefix: "visits",
+    uploaderUserId: opts.uploaderUserId,
+    fileName: opts.fileName,
+    contentType: opts.contentType,
+    body: opts.body,
+  });
+}
+
+/**
+ * Short-lived signed GET URL for a private object (photos, COA evidence, etc.).
+ */
+export async function getSignedObjectUrl(
   storageKey: string,
   expiresInSeconds = 3600,
 ): Promise<string> {
@@ -158,4 +181,27 @@ export async function getSignedPhotoUrl(
     Key: storageKey,
   });
   return getSignedUrl(getClient(), command, { expiresIn: expiresInSeconds });
+}
+
+/** @deprecated Prefer getSignedObjectUrl — kept for visit call sites. */
+export async function getSignedPhotoUrl(
+  storageKey: string,
+  expiresInSeconds = 3600,
+): Promise<string> {
+  return getSignedObjectUrl(storageKey, expiresInSeconds);
+}
+
+export async function uploadCoaEvidenceFile(opts: {
+  uploaderUserId: string;
+  fileName: string;
+  contentType: string;
+  body: Buffer;
+}): Promise<UploadedObject> {
+  return uploadObject({
+    prefix: "coa-evidence",
+    uploaderUserId: opts.uploaderUserId,
+    fileName: opts.fileName,
+    contentType: opts.contentType,
+    body: opts.body,
+  });
 }
