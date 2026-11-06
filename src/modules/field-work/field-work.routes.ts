@@ -5,6 +5,8 @@ import { requireRoles, requireWrite } from "../../middleware/rbac.js";
 import { errors } from "../../lib/errors.js";
 import * as service from "./field-work.service.js";
 
+/** Legacy free-text COA activity log — read/report kept; create returns 410. */
+
 export const fieldWorkRouter = Router();
 fieldWorkRouter.use(authenticate);
 
@@ -22,19 +24,19 @@ fieldWorkRouter.get(
   },
 );
 
+/** Deprecated: COA logging moves to /coa-performance (imihigo evidence). */
 fieldWorkRouter.post(
   "/",
   requireWrite,
   requireRoles("ADMIN", "COMMUNITY_OPPORTUNITY_ASSOCIATE"),
-  async (req, res, next) => {
-    try {
-      if (!req.user) throw errors.unauthorized();
-      const body = service.fieldWorkCreateSchema.parse(req.body);
-      const data = await service.createFieldWork(body, req.user);
-      res.status(201).json({ data });
-    } catch (error) {
-      next(error);
-    }
+  async (_req, res) => {
+    res.status(410).json({
+      error: {
+        code: "GONE",
+        message:
+          "Field work logging is retired. Use COA performance metrics instead.",
+      },
+    });
   },
 );
 

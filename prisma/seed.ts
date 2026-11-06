@@ -9,6 +9,7 @@ import { SEED_SALES } from "./seed-sales-data.js";
 import { SEED_FRAUD_FLAGS, SEED_VISITS } from "./seed-visits-data.js";
 import { SEED_REPORTS, SEED_SCORECARDS } from "./seed-reports-data.js";
 import { decisionFromApi } from "../src/lib/reporting.js";
+import { COA_METRIC_CATALOG } from "../src/modules/coa-metrics/coa-metrics.catalog.js";
 
 const prisma = new PrismaClient();
 
@@ -107,6 +108,37 @@ function sortTerritoriesForInsert(rows: SeedTerritory[]): SeedTerritory[] {
     cell: 3,
   };
   return [...rows].sort((a, b) => rank[a.type] - rank[b.type]);
+}
+
+async function seedCoaMetrics(): Promise<void> {
+  console.log(`Seeding COA imihigo metrics (${COA_METRIC_CATALOG.length})…`);
+  for (const seed of COA_METRIC_CATALOG) {
+    await prisma.coaMetric.upsert({
+      where: { key: seed.key },
+      create: {
+        key: seed.key,
+        label: seed.label,
+        description: seed.description,
+        adminNote: seed.adminNote ?? null,
+        monthlyTarget: seed.monthlyTarget,
+        evidenceType: seed.evidenceType,
+        enabled: seed.enabled,
+        sortOrder: seed.sortOrder,
+      },
+      update: {
+        label: seed.label,
+        description: seed.description,
+        adminNote: seed.adminNote ?? null,
+        monthlyTarget: seed.monthlyTarget,
+        evidenceType: seed.evidenceType,
+        enabled: seed.enabled,
+        sortOrder: seed.sortOrder,
+      },
+    });
+    console.log(
+      `  ✓ ${seed.key} (target ${seed.monthlyTarget}, ${seed.enabled ? "enabled" : "disabled"})`,
+    );
+  }
 }
 
 async function seedUsers(
@@ -745,7 +777,8 @@ async function main() {
     // Product seed is admin-only; demo TC/COA/agent rows were removed for UAT.
     const userByEmail = await seedUsers();
     await seedAdmin(userByEmail);
-    console.log("Seed complete (admin + system settings only).");
+    await seedCoaMetrics();
+    console.log("Seed complete (admin + system settings + COA metrics).");
     return;
   }
 
