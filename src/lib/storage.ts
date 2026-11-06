@@ -205,3 +205,18 @@ export async function uploadCoaEvidenceFile(opts: {
     body: opts.body,
   });
 }
+
+export async function uploadProfileAvatar(opts: {
+  uploaderUserId: string;
+  fileName: string;
+  contentType: string;
+  body: Buffer;
+}): Promise<UploadedObject> {
+  return uploadObject({
+    prefix: "avatars",
+    uploaderUserId: opts.uploaderUserId,
+    fileName: opts.fileName,
+    contentType: opts.contentType,
+    body: opts.body,
+  });
+}

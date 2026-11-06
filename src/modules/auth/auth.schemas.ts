@@ -31,10 +31,20 @@ export const updateProfileBodySchema = z
   .object({
     name: z.string().trim().min(2).max(120).optional(),
     phone: z.string().trim().min(7).max(32).nullable().optional(),
+    workingProvince: z.string().trim().min(2).max(120).nullable().optional(),
+    workingDistrict: z.string().trim().min(2).max(120).nullable().optional(),
+    /** Raw national ID digits; stored masked. Null clears. Empty string ignored. */
+    nid: z.string().trim().min(4).max(32).nullable().optional(),
   })
-  .refine((v) => v.name !== undefined || v.phone !== undefined, {
-    message: "Provide a name or phone to update",
-  });
+  .refine(
+    (v) =>
+      v.name !== undefined ||
+      v.phone !== undefined ||
+      v.workingProvince !== undefined ||
+      v.workingDistrict !== undefined ||
+      v.nid !== undefined,
+    { message: "Provide at least one profile field to update" },
+  );
 
 export const changePasswordBodySchema = z
   .object({

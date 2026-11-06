@@ -86,7 +86,7 @@ export async function listUsers(query: UserListQuery, actor: AuthUser) {
   ]);
 
   return {
-    data: rows.map(toUserRow),
+    data: await Promise.all(rows.map((row) => toUserRow(row))),
     meta: {
       page: query.page,
       pageSize: query.pageSize,
@@ -162,7 +162,7 @@ export async function createUser(
     userAgent: meta?.userAgent,
   });
 
-  return { user: toUserRow(created), invite };
+  return { user: await toUserRow(created), invite };
 }
 
 export async function updateUser(
@@ -240,7 +240,7 @@ export async function updateUser(
     userAgent: meta?.userAgent,
   });
 
-  return toUserRow(updated);
+  return await toUserRow(updated);
 }
 
 /** Admin sets a password directly (e.g. when email delivery is unavailable). */

@@ -5,6 +5,7 @@ import {
   clearAuthCookies,
   setAuthCookies,
 } from "../../lib/cookies.js";
+import { errors } from "../../lib/errors.js";
 import {
   changePasswordBodySchema,
   forgotPasswordBodySchema,
@@ -108,7 +109,7 @@ export const me: RequestHandler = async (req, res, next) => {
 };
 
 /**
- * PATCH /api/v1/auth/me — edit own name / phone.
+ * PATCH /api/v1/auth/me — edit own profile fields.
  */
 export const updateMe: RequestHandler = async (req, res, next) => {
   try {
@@ -116,6 +117,42 @@ export const updateMe: RequestHandler = async (req, res, next) => {
     const user = await accountService.updateOwnProfile(
       req.user!.id,
       body,
+      requestMeta(req),
+    );
+    res.json({ data: { user } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** POST /api/v1/auth/me/avatar — upload profile photo (multipart `file`). */
+export const uploadAvatar: RequestHandler = async (req, res, next) => {
+  try {
+    if (!req.user) throw errors.unauthorized();
+    const file = req.file;
+    if (!file) throw errors.badRequest("Attach an image as field `file`");
+    const user = await accountService.uploadOwnAvatar(
+      req.user.id,
+      {
+        buffer: file.buffer,
+        mimetype: file.mimetype,
+        originalname: file.originalname || "avatar.jpg",
+        size: file.size,
+      },
+      requestMeta(req),
+    );
+    res.json({ data: { user } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** DELETE /api/v1/auth/me/avatar — remove profile photo. */
+export const removeAvatar: RequestHandler = async (req, res, next) => {
+  try {
+    if (!req.user) throw errors.unauthorized();
+    const user = await accountService.removeOwnAvatar(
+      req.user.id,
       requestMeta(req),
     );
     res.json({ data: { user } });
