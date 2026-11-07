@@ -1,6 +1,10 @@
 import * as XLSX from "xlsx";
 import { writeAuditLog } from "../../lib/audit.js";
 import { errors } from "../../lib/errors.js";
+import {
+  normalizeNidDigits,
+  normalizeRwandaMobile,
+} from "../../lib/field-validation.js";
 import { logger } from "../../lib/logger.js";
 import { hashPassword } from "../../lib/password.js";
 import { prisma } from "../../lib/prisma.js";
@@ -177,8 +181,13 @@ function mapRawRow(
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return { ok: false, reason: "Valid email is required", email };
   }
-  if (!picked.phone || picked.phone.length < 7) {
-    return { ok: false, reason: "Phone is required (min 7 characters)", email };
+  const phone = picked.phone ? normalizeRwandaMobile(picked.phone) : "";
+  if (!/^07\d{8}$/.test(phone)) {
+    return {
+      ok: false,
+      reason: "Phone must be a Rwandan mobile number starting with 07",
+      email,
+    };
   }
   if (!picked.workingDistrict || picked.workingDistrict.length < 2) {
     return {
@@ -190,11 +199,19 @@ function mapRawRow(
   if (picked.name.length > 120) {
     return { ok: false, reason: "Name is too long", email };
   }
-  if (picked.phone.length > 32) {
-    return { ok: false, reason: "Phone is too long", email };
-  }
   if (picked.workingDistrict.length > 120) {
     return { ok: false, reason: "Working district is too long", email };
+  }
+  if (picked.nid) {
+    const nid = normalizeNidDigits(picked.nid);
+    if (!/^\d{1,16}$/.test(nid)) {
+      return {
+        ok: false,
+        reason: "National ID must be digits only (max 16)",
+        email,
+      };
+    }
+    picked.nid = nid;
   }
 
   return {
@@ -202,7 +219,7 @@ function mapRawRow(
     value: {
       name: picked.name,
       email,
-      phone: picked.phone,
+      phone,
       nid: picked.nid,
       workingDistrict: picked.workingDistrict,
     },
