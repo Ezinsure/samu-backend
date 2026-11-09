@@ -2,8 +2,15 @@ import { z } from "zod";
 import {
   personNameSchema,
   rwandaMobileOptionalSchema,
+  rwandaNidRequiredSchema,
+  safeShortText,
 } from "../../lib/field-validation.js";
 import { passwordSchema } from "../auth/auth.schemas.js";
+
+const provinceSchema = safeShortText(120, "Province").min(2).nullable().optional();
+const districtSchema = safeShortText(120, "District").min(2).nullable().optional();
+/** Raw national ID digits; stored masked. Null clears. */
+const nidSchema = z.union([rwandaNidRequiredSchema, z.null()]).optional();
 
 /** Roles an admin may assign when creating/updating users (product surface). */
 export const userRoleSchema = z.enum([
@@ -56,6 +63,9 @@ export const userCreateSchema = z.object({
   /** Portal link for AGENT users; ignored for every other role. */
   agentId: z.string().min(1).nullable().optional(),
   password: passwordSchema.optional(),
+  workingProvince: provinceSchema,
+  workingDistrict: districtSchema,
+  nid: nidSchema,
 });
 
 export const userUpdateSchema = z
@@ -66,6 +76,9 @@ export const userUpdateSchema = z
     role: userRoleSchema.optional(),
     status: userStatusSchema.optional(),
     agentId: z.string().min(1).nullable().optional(),
+    workingProvince: provinceSchema,
+    workingDistrict: districtSchema,
+    nid: nidSchema,
   })
   .refine((v) => Object.values(v).some((value) => value !== undefined), {
     message: "Provide at least one field to update",

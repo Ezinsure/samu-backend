@@ -10,7 +10,6 @@ import {
   changePasswordBodySchema,
   forgotPasswordBodySchema,
   loginBodySchema,
-  registerBodySchema,
   resetPasswordBodySchema,
   updateProfileBodySchema,
 } from "./auth.schemas.js";
@@ -24,13 +23,14 @@ function requestMeta(req: Parameters<RequestHandler>[0]) {
 }
 
 /**
- * POST /api/v1/auth/register — create pending AGENT (cannot log in yet).
+ * POST /api/v1/auth/register — disabled. Accounts are created by admins
+ * (Users & access / COA import) or via invite join links.
  */
-export const register: RequestHandler = async (req, res, next) => {
+export const register: RequestHandler = async (_req, _res, next) => {
   try {
-    const body = registerBodySchema.parse(req.body);
-    const user = await authService.registerUser(body);
-    res.status(201).json({ data: { user } });
+    throw errors.gone(
+      "Public self-registration is disabled. Ask an administrator to create your account.",
+    );
   } catch (error) {
     next(error);
   }

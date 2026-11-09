@@ -24,6 +24,14 @@ function requireAdmin(actor: AuthUser) {
   if (actor.role !== "ADMIN") throw errors.forbidden("Only ADMIN can manage users");
 }
 
+function maskNid(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length < 4) {
+    throw errors.badRequest("National ID must include at least 4 digits");
+  }
+  return `1********${digits.slice(-3)}`;
+}
+
 async function loadUser(id: string): Promise<User> {
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) throw errors.notFound("User not found");
@@ -137,6 +145,12 @@ export async function createUser(
       passwordHash,
       avatarInitials: initialsFromName(input.name),
       agentId,
+      workingProvince: input.workingProvince ?? null,
+      workingDistrict: input.workingDistrict ?? null,
+      nidMasked:
+        input.nid === undefined || input.nid === null
+          ? null
+          : maskNid(input.nid),
     },
     include: userRowInclude,
   });
@@ -208,6 +222,13 @@ export async function updateUser(
   if (nextRole !== "AGENT") agentId = null;
   if (agentId) await assertAgentLinkable(agentId, id);
 
+  const nidMasked =
+    input.nid === undefined
+      ? undefined
+      : input.nid === null
+        ? null
+        : maskNid(input.nid);
+
   const updated = await prisma.user.update({
     where: { id },
     data: {
@@ -218,6 +239,9 @@ export async function updateUser(
       status: input.status,
       agentId,
       avatarInitials: input.name ? initialsFromName(input.name) : undefined,
+      workingProvince: input.workingProvince,
+      workingDistrict: input.workingDistrict,
+      nidMasked,
     },
     include: userRowInclude,
   });
