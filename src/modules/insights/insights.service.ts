@@ -79,7 +79,11 @@ export type CoapFilterOptions = {
 type TcScope = { tcUserId?: string };
 
 function scopeWhere(viewer: AuthUser): TcScope | null {
-  if (viewer.role === "TERRITORY_COORDINATOR") {
+  if (
+    viewer.role === "TERRITORY_COORDINATOR" ||
+    viewer.role === "COMMUNITY_OPPORTUNITY_ASSOCIATE"
+  ) {
+    // COA field-work rows are stored under the actor's user id in tcUserId.
     return { tcUserId: viewer.id };
   }
   if (isNationalReader(viewer.role) || viewer.role === "ADMIN") {

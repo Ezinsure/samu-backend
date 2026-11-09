@@ -1,14 +1,6 @@
-import { PrismaClient, type TerritoryType, type UserRole } from "@prisma/client";
+import { PrismaClient, type UserRole } from "@prisma/client";
 import argon2 from "argon2";
-import { SEED_AGENTS } from "./seed-agents-data.js";
-import { SEED_ACTIVITIES } from "./seed-activities-data.js";
-import { SEED_LEADS } from "./seed-leads-data.js";
-import { SEED_ONBOARDING } from "./seed-onboarding-data.js";
-import { SEED_FEEDBACK } from "./seed-feedback-data.js";
-import { SEED_SALES } from "./seed-sales-data.js";
-import { SEED_FRAUD_FLAGS, SEED_VISITS } from "./seed-visits-data.js";
-import { SEED_REPORTS, SEED_SCORECARDS } from "./seed-reports-data.js";
-import { decisionFromApi } from "../src/lib/reporting.js";
+import { COA_METRIC_CATALOG } from "../src/modules/coa-metrics/coa-metrics.catalog.js";
 
 const prisma = new PrismaClient();
 
@@ -20,18 +12,10 @@ type SeedUser = {
   phone?: string;
 };
 
-type SeedTerritory = {
-  id: string;
-  name: string;
-  type: TerritoryType;
-  parentId?: string;
-};
-
 /**
- * Local/demo accounts for every SAMU role.
- * Passwords match DOCs/SAMU-Backend-Implementation-Phases.md — never use in production.
+ * Staging / local UAT accounts.
+ * Passwords are for shared demos only — change before production.
  */
-/** Fresh UAT seed: admin only — create TC/COA accounts from the app. */
 const SEED_USERS: SeedUser[] = [
   {
     email: "samu_admin@yopmail.com",
@@ -42,55 +26,6 @@ const SEED_USERS: SeedUser[] = [
   },
 ];
 
-/** Mirrors frontend/data/geography.ts so adapters can swap with stable ids. */
-const SEED_TERRITORIES: SeedTerritory[] = [
-  { id: "prov-kigali", name: "Kigali City", type: "province" },
-  { id: "prov-south", name: "Southern Province", type: "province" },
-  { id: "prov-east", name: "Eastern Province", type: "province" },
-  { id: "prov-north", name: "Northern Province", type: "province" },
-  { id: "prov-west", name: "Western Province", type: "province" },
-
-  { id: "dist-gasabo", name: "Gasabo", type: "district", parentId: "prov-kigali" },
-  { id: "dist-kicukiro", name: "Kicukiro", type: "district", parentId: "prov-kigali" },
-  { id: "dist-nyarugenge", name: "Nyarugenge", type: "district", parentId: "prov-kigali" },
-  { id: "dist-huye", name: "Huye", type: "district", parentId: "prov-south" },
-  { id: "dist-muhanga", name: "Muhanga", type: "district", parentId: "prov-south" },
-  { id: "dist-rwamagana", name: "Rwamagana", type: "district", parentId: "prov-east" },
-  { id: "dist-musanze", name: "Musanze", type: "district", parentId: "prov-north" },
-  { id: "dist-rubavu", name: "Rubavu", type: "district", parentId: "prov-west" },
-
-  { id: "sec-remera", name: "Remera", type: "sector", parentId: "dist-gasabo" },
-  { id: "sec-kimironko", name: "Kimironko", type: "sector", parentId: "dist-gasabo" },
-  { id: "sec-kanombe", name: "Kanombe", type: "sector", parentId: "dist-kicukiro" },
-  { id: "sec-gikondo", name: "Gikondo", type: "sector", parentId: "dist-kicukiro" },
-  { id: "sec-nyamirambo", name: "Nyamirambo", type: "sector", parentId: "dist-nyarugenge" },
-  { id: "sec-ngoma", name: "Ngoma", type: "sector", parentId: "dist-huye" },
-  { id: "sec-nyamabuye", name: "Nyamabuye", type: "sector", parentId: "dist-muhanga" },
-
-  { id: "cell-rukiri-i", name: "Rukiri I", type: "cell", parentId: "sec-remera" },
-  { id: "cell-rukiri-ii", name: "Rukiri II", type: "cell", parentId: "sec-remera" },
-  { id: "cell-kibagabaga", name: "Kibagabaga", type: "cell", parentId: "sec-kimironko" },
-  { id: "cell-nyagatovu", name: "Nyagatovu", type: "cell", parentId: "sec-kimironko" },
-  { id: "cell-busanza", name: "Busanza", type: "cell", parentId: "sec-kanombe" },
-  { id: "cell-kabeza", name: "Kabeza", type: "cell", parentId: "sec-kanombe" },
-  { id: "cell-kanserege", name: "Kanserege", type: "cell", parentId: "sec-gikondo" },
-  { id: "cell-biryogo", name: "Biryogo", type: "cell", parentId: "sec-nyamirambo" },
-  { id: "cell-mwendo", name: "Mwendo", type: "cell", parentId: "sec-nyamirambo" },
-  { id: "cell-butare", name: "Butare", type: "cell", parentId: "sec-ngoma" },
-  { id: "cell-matyazo", name: "Matyazo", type: "cell", parentId: "sec-ngoma" },
-  { id: "cell-gahogo", name: "Gahogo", type: "cell", parentId: "sec-nyamabuye" },
-  { id: "cell-kavumu", name: "Kavumu", type: "cell", parentId: "sec-nyamabuye" },
-];
-
-/** District → TC email (seed users must exist first). */
-const DISTRICT_TC_EMAIL: Record<string, string> = {
-  "dist-gasabo": "tc.kigali@solektra.rw",
-  "dist-kicukiro": "tc.kigali@solektra.rw",
-  "dist-nyarugenge": "tc.kigali@solektra.rw",
-  "dist-huye": "tc.south@solektra.rw",
-  "dist-muhanga": "tc.south@solektra.rw",
-};
-
 function initialsFromName(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "??";
@@ -98,15 +33,34 @@ function initialsFromName(name: string): string {
   return `${parts[0]![0] ?? ""}${parts[1]![0] ?? ""}`.toUpperCase();
 }
 
-/** Province → district → sector → cell order for parent FK safety. */
-function sortTerritoriesForInsert(rows: SeedTerritory[]): SeedTerritory[] {
-  const rank: Record<TerritoryType, number> = {
-    province: 0,
-    district: 1,
-    sector: 2,
-    cell: 3,
-  };
-  return [...rows].sort((a, b) => rank[a.type] - rank[b.type]);
+async function seedCoaMetrics(): Promise<void> {
+  console.log(`Seeding COA imihigo metrics (${COA_METRIC_CATALOG.length})…`);
+  for (const seed of COA_METRIC_CATALOG) {
+    await prisma.coaMetric.upsert({
+      where: { key: seed.key },
+      create: {
+        key: seed.key,
+        label: seed.label,
+        description: seed.description,
+        adminNote: seed.adminNote ?? null,
+        monthlyTarget: seed.monthlyTarget,
+        evidenceType: seed.evidenceType,
+        enabled: seed.enabled,
+        sortOrder: seed.sortOrder,
+      },
+      update: {
+        // Preserve Admin edits to target/enabled; refresh copy + evidence type only.
+        label: seed.label,
+        description: seed.description,
+        adminNote: seed.adminNote ?? null,
+        evidenceType: seed.evidenceType,
+        sortOrder: seed.sortOrder,
+      },
+    });
+    console.log(
+      `  ✓ ${seed.key} (target ${seed.monthlyTarget}, ${seed.enabled ? "enabled" : "disabled"})`,
+    );
+  }
 }
 
 async function seedUsers(
@@ -146,521 +100,6 @@ async function seedUsers(
   }
 
   return byEmail;
-}
-
-async function seedTerritories(userByEmail: Map<string, string>) {
-  console.log("Seeding territories (geo tree)…");
-
-  for (const row of sortTerritoriesForInsert(SEED_TERRITORIES)) {
-    await prisma.territory.upsert({
-      where: { id: row.id },
-      create: {
-        id: row.id,
-        name: row.name,
-        type: row.type,
-        parentId: row.parentId,
-      },
-      update: {
-        name: row.name,
-        type: row.type,
-        parentId: row.parentId,
-      },
-    });
-    console.log(`  ✓ ${row.id} (${row.type})`);
-  }
-
-  console.log("Seeding district → TC assignments…");
-  const now = new Date();
-
-  for (const [districtId, email] of Object.entries(DISTRICT_TC_EMAIL)) {
-    const tcUserId = userByEmail.get(email);
-    if (!tcUserId) {
-      throw new Error(`Missing seed user for ${email}`);
-    }
-
-    // Close prior active rows, then open a fresh assignment (idempotent end state).
-    await prisma.territoryAssignment.updateMany({
-      where: { territoryId: districtId, active: true },
-      data: { active: false, endedAt: now },
-    });
-
-    await prisma.territoryAssignment.create({
-      data: {
-        territoryId: districtId,
-        tcUserId,
-        startedAt: now,
-        active: true,
-      },
-    });
-
-    await prisma.territory.update({
-      where: { id: districtId },
-      data: { activeTcUserId: tcUserId },
-    });
-
-    console.log(`  ✓ ${districtId} → ${email}`);
-  }
-}
-
-async function seedAgents(userByEmail: Map<string, string>) {
-  console.log("Seeding agents…");
-  const now = new Date();
-
-  for (const row of SEED_AGENTS) {
-    const tcUserId = userByEmail.get(row.tcEmail);
-    if (!tcUserId) {
-      throw new Error(`Missing seed TC for ${row.tcEmail}`);
-    }
-
-    const status = row.status ?? "Certified";
-    const agent = await prisma.agent.upsert({
-      where: { id: row.id },
-      create: {
-        id: row.id,
-        code: row.code,
-        name: row.name,
-        phone: row.phone,
-        nidMasked: `1********${row.phone.replace(/\D/g, "").slice(-3)}`,
-        nidVerified: status === "Certified",
-        status,
-        geoProvince: row.province,
-        geoDistrict: row.district,
-        geoSector: row.sector,
-        geoCell: row.cell,
-        lat: row.lat,
-        lng: row.lng,
-        accuracyMeters: 5,
-        tcUserId,
-        servicesJson: row.services ?? {},
-        lastVisitAt: row.lastVisitAt ? new Date(row.lastVisitAt) : null,
-        compliance: row.compliance,
-        clientsRegistered: row.clientsRegistered ?? 0,
-        recruitedThisMonth: row.recruitedThisMonth ?? false,
-        reactivatedThisMonth: row.reactivatedThisMonth ?? false,
-        createdAt: new Date("2025-11-01T08:00:00.000Z"),
-      },
-      update: {
-        code: row.code,
-        name: row.name,
-        phone: row.phone,
-        nidMasked: `1********${row.phone.replace(/\D/g, "").slice(-3)}`,
-        nidVerified: status === "Certified",
-        status,
-        geoProvince: row.province,
-        geoDistrict: row.district,
-        geoSector: row.sector,
-        geoCell: row.cell,
-        lat: row.lat,
-        lng: row.lng,
-        tcUserId,
-        servicesJson: row.services ?? {},
-        lastVisitAt: row.lastVisitAt ? new Date(row.lastVisitAt) : null,
-        compliance: row.compliance,
-        clientsRegistered: row.clientsRegistered ?? 0,
-        recruitedThisMonth: row.recruitedThisMonth ?? false,
-        reactivatedThisMonth: row.reactivatedThisMonth ?? false,
-      },
-    });
-
-    await prisma.agentAssignment.updateMany({
-      where: { agentId: agent.id, active: true },
-      data: { active: false, endedAt: now },
-    });
-    await prisma.agentAssignment.create({
-      data: {
-        agentId: agent.id,
-        tcUserId,
-        startedAt: now,
-        active: true,
-      },
-    });
-
-    console.log(`  ✓ ${agent.code} (${agent.name})`);
-  }
-
-  // Link demo AGENT portal user to agent-001 when present.
-  const demoAgentUserId = userByEmail.get("agent.demo@solektra.rw");
-  if (demoAgentUserId) {
-    await prisma.user.update({
-      where: { id: demoAgentUserId },
-      data: { agentId: "agent-001" },
-    });
-    console.log("  ✓ Linked agent.demo@solektra.rw → agent-001");
-  }
-}
-
-async function seedLeads(userByEmail: Map<string, string>) {
-  console.log("Seeding COAP leads…");
-
-  for (const row of SEED_LEADS) {
-    const tcUserId = userByEmail.get(row.tcEmail);
-    if (!tcUserId) {
-      throw new Error(`Missing seed TC for ${row.tcEmail}`);
-    }
-
-    const lead = await prisma.lead.upsert({
-      where: { id: row.id },
-      create: {
-        id: row.id,
-        name: row.name,
-        phone: row.phone,
-        entityType: row.entityType,
-        serviceLine: row.serviceLine,
-        status: row.status,
-        geoProvince: row.province,
-        geoDistrict: row.district,
-        geoSector: row.sector,
-        tcUserId,
-        interestSummary: row.interestSummary ?? null,
-        notes: row.notes ?? null,
-        convertedAt: row.convertedAt ? new Date(row.convertedAt) : null,
-        createdAt: new Date(row.createdAt),
-        updatedAt: new Date(row.updatedAt),
-      },
-      update: {
-        name: row.name,
-        phone: row.phone,
-        entityType: row.entityType,
-        serviceLine: row.serviceLine,
-        status: row.status,
-        geoProvince: row.province,
-        geoDistrict: row.district,
-        geoSector: row.sector,
-        tcUserId,
-        interestSummary: row.interestSummary ?? null,
-        notes: row.notes ?? null,
-        convertedAt: row.convertedAt ? new Date(row.convertedAt) : null,
-        updatedAt: new Date(row.updatedAt),
-      },
-    });
-
-    console.log(`  ✓ ${lead.id} (${lead.name})`);
-  }
-}
-
-async function seedActivities(userByEmail: Map<string, string>) {
-  console.log("Seeding COAP field activities…");
-
-  for (const row of SEED_ACTIVITIES) {
-    const tcUserId = userByEmail.get(row.tcEmail);
-    if (!tcUserId) {
-      throw new Error(`Missing seed TC for ${row.tcEmail}`);
-    }
-
-    const activity = await prisma.fieldActivity.upsert({
-      where: { id: row.id },
-      create: {
-        id: row.id,
-        tcUserId,
-        serviceLine: row.serviceLine,
-        activityType: row.activityType,
-        date: new Date(`${row.date}T00:00:00.000Z`),
-        geoProvince: row.province,
-        geoDistrict: row.district,
-        geoSector: row.sector,
-        venue: row.venue,
-        peopleReached: row.peopleReached,
-        summary: row.summary,
-        outcome: row.outcome,
-        leadId: row.leadId ?? null,
-        agentId: row.agentId ?? null,
-        createdAt: new Date(row.createdAt),
-      },
-      update: {
-        tcUserId,
-        serviceLine: row.serviceLine,
-        activityType: row.activityType,
-        date: new Date(`${row.date}T00:00:00.000Z`),
-        geoProvince: row.province,
-        geoDistrict: row.district,
-        geoSector: row.sector,
-        venue: row.venue,
-        peopleReached: row.peopleReached,
-        summary: row.summary,
-        outcome: row.outcome,
-        leadId: row.leadId ?? null,
-        agentId: row.agentId ?? null,
-      },
-    });
-
-    console.log(`  ✓ ${activity.id} (${activity.activityType})`);
-  }
-}
-
-async function seedOnboarding(userByEmail: Map<string, string>) {
-  console.log("Seeding COAP onboarding cases…");
-
-  for (const row of SEED_ONBOARDING) {
-    const tcUserId = userByEmail.get(row.tcEmail);
-    if (!tcUserId) {
-      throw new Error(`Missing seed TC for ${row.tcEmail}`);
-    }
-
-    const item = await prisma.onboardingCase.upsert({
-      where: { id: row.id },
-      create: {
-        id: row.id,
-        tcUserId,
-        serviceLine: row.serviceLine,
-        kind: row.kind,
-        status: row.status,
-        customerName: row.customerName,
-        customerPhone: row.customerPhone,
-        leadId: row.leadId ?? null,
-        agentId: row.agentId ?? null,
-        geoProvince: row.province,
-        geoDistrict: row.district,
-        geoSector: row.sector,
-        stageLabel: row.stageLabel,
-        notes: row.notes ?? null,
-        startedAt: new Date(row.startedAt),
-        updatedAt: new Date(row.updatedAt),
-        completedAt: row.completedAt ? new Date(row.completedAt) : null,
-      },
-      update: {
-        tcUserId,
-        serviceLine: row.serviceLine,
-        kind: row.kind,
-        status: row.status,
-        customerName: row.customerName,
-        customerPhone: row.customerPhone,
-        leadId: row.leadId ?? null,
-        agentId: row.agentId ?? null,
-        geoProvince: row.province,
-        geoDistrict: row.district,
-        geoSector: row.sector,
-        stageLabel: row.stageLabel,
-        notes: row.notes ?? null,
-        updatedAt: new Date(row.updatedAt),
-        completedAt: row.completedAt ? new Date(row.completedAt) : null,
-      },
-    });
-
-    console.log(`  ✓ ${item.id} (${item.customerName})`);
-  }
-}
-
-async function seedSales(userByEmail: Map<string, string>) {
-  console.log("Seeding COAP sales…");
-
-  for (const row of SEED_SALES) {
-    const tcUserId = userByEmail.get(row.tcEmail);
-    if (!tcUserId) {
-      throw new Error(`Missing seed TC for ${row.tcEmail}`);
-    }
-
-    const sale = await prisma.sale.upsert({
-      where: { id: row.id },
-      create: {
-        id: row.id,
-        tcUserId,
-        serviceLine: row.serviceLine,
-        productCategory: row.productCategory,
-        productName: row.productName,
-        quantity: row.quantity,
-        amountRwf: row.amountRwf,
-        customerName: row.customerName,
-        customerPhone: row.customerPhone,
-        leadId: row.leadId ?? null,
-        onboardingId: row.onboardingId ?? null,
-        depositRwf: row.depositRwf ?? null,
-        installmentMonths: row.installmentMonths ?? null,
-        geoProvince: row.province,
-        geoDistrict: row.district,
-        geoSector: row.sector,
-        soldAt: new Date(row.soldAt),
-        notes: row.notes ?? null,
-      },
-      update: {
-        tcUserId,
-        serviceLine: row.serviceLine,
-        productCategory: row.productCategory,
-        productName: row.productName,
-        quantity: row.quantity,
-        amountRwf: row.amountRwf,
-        customerName: row.customerName,
-        customerPhone: row.customerPhone,
-        leadId: row.leadId ?? null,
-        onboardingId: row.onboardingId ?? null,
-        depositRwf: row.depositRwf ?? null,
-        installmentMonths: row.installmentMonths ?? null,
-        geoProvince: row.province,
-        geoDistrict: row.district,
-        geoSector: row.sector,
-        soldAt: new Date(row.soldAt),
-        notes: row.notes ?? null,
-      },
-    });
-
-    console.log(`  ✓ ${sale.id} (${sale.productName})`);
-  }
-}
-
-async function seedFeedback(userByEmail: Map<string, string>) {
-  console.log("Seeding COAP community feedback…");
-
-  for (const row of SEED_FEEDBACK) {
-    const tcUserId = userByEmail.get(row.tcEmail);
-    if (!tcUserId) {
-      throw new Error(`Missing seed TC for ${row.tcEmail}`);
-    }
-
-    const item = await prisma.communityFeedback.upsert({
-      where: { id: row.id },
-      create: {
-        id: row.id,
-        tcUserId,
-        serviceLine: row.serviceLine ?? null,
-        kind: row.kind,
-        severity: row.severity,
-        status: row.status,
-        title: row.title,
-        description: row.description,
-        geoProvince: row.province,
-        geoDistrict: row.district,
-        geoSector: row.sector,
-        leadId: row.leadId ?? null,
-        resolutionNotes: row.resolutionNotes ?? null,
-        createdAt: new Date(row.createdAt),
-        updatedAt: new Date(row.updatedAt),
-      },
-      update: {
-        tcUserId,
-        serviceLine: row.serviceLine ?? null,
-        kind: row.kind,
-        severity: row.severity,
-        status: row.status,
-        title: row.title,
-        description: row.description,
-        geoProvince: row.province,
-        geoDistrict: row.district,
-        geoSector: row.sector,
-        leadId: row.leadId ?? null,
-        resolutionNotes: row.resolutionNotes ?? null,
-        updatedAt: new Date(row.updatedAt),
-      },
-    });
-
-    console.log(`  ✓ ${item.id} (${item.title})`);
-  }
-}
-
-async function seedVisits(userByEmail: Map<string, string>) {
-  console.log("Seeding field visits…");
-
-  for (const row of SEED_VISITS) {
-    const tcUserId = userByEmail.get(row.tcEmail);
-    if (!tcUserId) {
-      throw new Error(`Missing seed TC for ${row.tcEmail}`);
-    }
-
-    await prisma.visit.upsert({
-      where: { id: row.id },
-      create: {
-        id: row.id,
-        agentId: row.agentId,
-        tcUserId,
-        purpose: row.purpose,
-        startedAt: new Date(row.startedAt),
-        endedAt: new Date(row.endedAt),
-        durationMinutes: row.durationMinutes,
-        activities: row.activities,
-        outcome: row.outcome,
-        lat: row.lat,
-        lng: row.lng,
-        accuracyMeters: row.accuracyMeters ?? null,
-        distanceFromRegisteredMeters: row.distanceFromRegisteredMeters,
-        validation: row.validation,
-        confirmationStatus: row.confirmationStatus,
-        challenges: row.challenges ?? null,
-        supportNeeded: row.supportNeeded ?? null,
-        flaggedReason: row.flaggedReason ?? null,
-      },
-      update: {
-        agentId: row.agentId,
-        tcUserId,
-        purpose: row.purpose,
-        startedAt: new Date(row.startedAt),
-        endedAt: new Date(row.endedAt),
-        durationMinutes: row.durationMinutes,
-        activities: row.activities,
-        outcome: row.outcome,
-        lat: row.lat,
-        lng: row.lng,
-        accuracyMeters: row.accuracyMeters ?? null,
-        distanceFromRegisteredMeters: row.distanceFromRegisteredMeters,
-        validation: row.validation,
-        confirmationStatus: row.confirmationStatus,
-        challenges: row.challenges ?? null,
-        supportNeeded: row.supportNeeded ?? null,
-        flaggedReason: row.flaggedReason ?? null,
-      },
-    });
-
-    await prisma.visitPhoto.deleteMany({ where: { visitId: row.id } });
-    await prisma.visitPhoto.createMany({
-      data: row.photos.map((photo) => ({
-        id: photo.id,
-        visitId: row.id,
-        storageKey: `seed/${row.id}/${photo.fileName}`,
-        fileName: photo.fileName,
-        contentType: photo.contentType,
-        sizeBytes: photo.sizeBytes,
-      })),
-    });
-
-    console.log(`  ✓ ${row.id} (${row.purpose})`);
-  }
-
-  console.log("Seeding fraud flags…");
-  for (const row of SEED_FRAUD_FLAGS) {
-    const assignedReviewerId = row.assignedReviewerEmail
-      ? userByEmail.get(row.assignedReviewerEmail) ?? null
-      : null;
-    const reviewedByUserId = row.reviewedByEmail
-      ? userByEmail.get(row.reviewedByEmail) ?? null
-      : null;
-
-    const reviewHistory = (row.reviewHistory ?? []).map((event) => ({
-      id: event.id,
-      at: event.at,
-      byUserId: userByEmail.get(event.byEmail) ?? event.byEmail,
-      action: event.action,
-      notes: event.notes,
-    }));
-
-    await prisma.fraudFlag.upsert({
-      where: { id: row.id },
-      create: {
-        id: row.id,
-        visitId: row.visitId,
-        type: row.type,
-        severity: row.severity,
-        status: row.status,
-        detectedAt: new Date(row.detectedAt),
-        notes: row.notes ?? null,
-        resolution: row.resolution ?? null,
-        reviewedAt: row.reviewedAt ? new Date(row.reviewedAt) : null,
-        reviewedByUserId,
-        assignedReviewerId,
-        reviewHistoryJson: reviewHistory,
-      },
-      update: {
-        visitId: row.visitId,
-        type: row.type,
-        severity: row.severity,
-        status: row.status,
-        detectedAt: new Date(row.detectedAt),
-        notes: row.notes ?? null,
-        resolution: row.resolution ?? null,
-        reviewedAt: row.reviewedAt ? new Date(row.reviewedAt) : null,
-        reviewedByUserId,
-        assignedReviewerId,
-        reviewHistoryJson: reviewHistory,
-      },
-    });
-    console.log(`  ✓ ${row.id} (${row.type})`);
-  }
 }
 
 async function seedAdmin(userByEmail: Map<string, string>) {
@@ -728,121 +167,32 @@ async function seedAdmin(userByEmail: Map<string, string>) {
 }
 
 /**
- * Idempotent seed.
+ * Idempotent UAT seed: admin account, system settings, and COA imihigo metrics.
  *
- * Modes (env `SEED_MODE`):
- * - `full` (default) — users, geo, agents, COAP, visits, reports, settings
- * - `users` — login accounts + system settings only (fresh UAT / empty product data)
+ * Modes (`SEED_MODE` env or CLI flag):
+ * - `uat` / `users` / `full` (default) — same lean path for staging
+ *
+ * Create TC/COA accounts from the app (Users → Import COAs / New user).
  */
 async function main() {
   const mode = (
     process.env.SEED_MODE ??
-    (process.argv.includes("--users") ? "users" : "full")
+    (process.argv.includes("--users")
+      ? "users"
+      : process.argv.includes("--uat")
+        ? "uat"
+        : "full")
   ).toLowerCase();
-  console.log(`Seed mode: ${mode}`);
+  console.log(`Seed mode: ${mode} (admin + settings + COA metrics)`);
 
-  if (mode === "users" || mode === "full") {
-    // Product seed is admin-only; demo TC/COA/agent rows were removed for UAT.
-    const userByEmail = await seedUsers();
-    await seedAdmin(userByEmail);
-    console.log("Seed complete (admin + system settings only).");
-    return;
+  if (mode !== "users" && mode !== "full" && mode !== "uat") {
+    throw new Error(`Unknown SEED_MODE="${mode}". Use "uat", "users", or "full".`);
   }
 
-  throw new Error(`Unknown SEED_MODE="${mode}". Use "full" or "users".`);
-}
-
-async function seedReports(userByEmail: Map<string, string>) {
-  console.log("Seeding monthly reports…");
-
-  for (const row of SEED_REPORTS) {
-    const tcUserId = userByEmail.get(row.tcEmail);
-    if (!tcUserId) throw new Error(`Missing seed TC for ${row.tcEmail}`);
-
-    const history = row.history.map((event) => ({
-      id: event.id,
-      at: event.at,
-      byUserId: userByEmail.get(event.byEmail) ?? event.byEmail,
-      action: event.action,
-      status: event.status,
-      notes: event.notes,
-    }));
-
-    await prisma.monthlyReport.upsert({
-      where: { id: row.id },
-      create: {
-        id: row.id,
-        tcUserId,
-        period: row.period,
-        status: row.status,
-        deadline: new Date(`${row.deadline}T00:00:00.000Z`),
-        submittedAt: row.submittedAt ? new Date(row.submittedAt) : null,
-        territorySnapshotJson: row.territorySnapshot,
-        kpiActualsJson: row.kpiActuals,
-        narrativeJson: row.narrative,
-        agentSnapshotJson: [],
-        historyJson: history,
-        reviewNotes: row.reviewNotes ?? null,
-      },
-      update: {
-        tcUserId,
-        period: row.period,
-        status: row.status,
-        deadline: new Date(`${row.deadline}T00:00:00.000Z`),
-        submittedAt: row.submittedAt ? new Date(row.submittedAt) : null,
-        territorySnapshotJson: row.territorySnapshot,
-        kpiActualsJson: row.kpiActuals,
-        narrativeJson: row.narrative,
-        historyJson: history,
-        reviewNotes: row.reviewNotes ?? null,
-      },
-    });
-    console.log(`  ✓ ${row.id} (${row.status})`);
-  }
-
-  console.log("Seeding scorecards…");
-  for (const row of SEED_SCORECARDS) {
-    const tcUserId = userByEmail.get(row.tcEmail);
-    if (!tcUserId) throw new Error(`Missing seed TC for ${row.tcEmail}`);
-    const evaluatorUserId = row.evaluatorEmail
-      ? userByEmail.get(row.evaluatorEmail) ?? null
-      : null;
-    const decision = row.decision ? decisionFromApi(row.decision) : null;
-
-    await prisma.scorecard.upsert({
-      where: { id: row.id },
-      create: {
-        id: row.id,
-        monthlyReportId: row.monthlyReportId,
-        tcUserId,
-        period: row.period,
-        status: row.status,
-        templateVersion: row.templateVersion,
-        criteriaJson: row.criteria,
-        overallComment: row.overallComment,
-        decision: decision ?? null,
-        weightedTotal: row.weightedTotal,
-        evaluatorUserId,
-        submittedAt: row.submittedAt ? new Date(row.submittedAt) : null,
-        updatedAt: new Date(row.updatedAt),
-      },
-      update: {
-        monthlyReportId: row.monthlyReportId,
-        tcUserId,
-        period: row.period,
-        status: row.status,
-        templateVersion: row.templateVersion,
-        criteriaJson: row.criteria,
-        overallComment: row.overallComment,
-        decision: decision ?? null,
-        weightedTotal: row.weightedTotal,
-        evaluatorUserId,
-        submittedAt: row.submittedAt ? new Date(row.submittedAt) : null,
-        updatedAt: new Date(row.updatedAt),
-      },
-    });
-    console.log(`  ✓ ${row.id} (${row.status})`);
-  }
+  const userByEmail = await seedUsers();
+  await seedAdmin(userByEmail);
+  await seedCoaMetrics();
+  console.log("Seed complete (admin + system settings + COA metrics).");
 }
 
 main()

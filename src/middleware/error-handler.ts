@@ -31,6 +31,35 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     return;
   }
 
+  // Multer rejects (size / MIME) before controllers run.
+  const multerCode =
+    err && typeof err === "object" && "code" in err
+      ? String((err as { code?: string }).code ?? "")
+      : "";
+  if (multerCode === "LIMIT_FILE_SIZE") {
+    res.status(400).json({
+      error: {
+        code: "BAD_REQUEST",
+        message: "Uploaded file exceeds the allowed size limit",
+        details: [],
+      },
+    });
+    return;
+  }
+  if (
+    err instanceof Error &&
+    /only pdf or image|file type|mimetype/i.test(err.message)
+  ) {
+    res.status(400).json({
+      error: {
+        code: "BAD_REQUEST",
+        message: err.message,
+        details: [],
+      },
+    });
+    return;
+  }
+
   logger.error({ err }, "Unhandled error");
 
   res.status(500).json({

@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  personNameSchema,
+  rwandaMobileOptionalSchema,
+  rwandaNidRequiredSchema,
+  safeShortText,
+} from "../../lib/field-validation.js";
 
 /** Strong password: length + upper + lower + digit + special character. */
 export const passwordSchema = z
@@ -17,8 +23,8 @@ export const passwordSchema = z
 export const registerBodySchema = z.object({
   email: z.string().email().max(320).transform((v) => v.toLowerCase().trim()),
   password: passwordSchema,
-  name: z.string().trim().min(2).max(120),
-  phone: z.string().trim().min(7).max(32).optional(),
+  name: personNameSchema,
+  phone: rwandaMobileOptionalSchema,
 });
 
 export const loginBodySchema = z.object({
@@ -29,12 +35,28 @@ export const loginBodySchema = z.object({
 /** Self-service profile edit. Email and role are admin-managed. */
 export const updateProfileBodySchema = z
   .object({
-    name: z.string().trim().min(2).max(120).optional(),
-    phone: z.string().trim().min(7).max(32).nullable().optional(),
+    name: personNameSchema.optional(),
+    phone: rwandaMobileOptionalSchema,
+    workingProvince: safeShortText(120, "Province")
+      .min(2)
+      .nullable()
+      .optional(),
+    workingDistrict: safeShortText(120, "District")
+      .min(2)
+      .nullable()
+      .optional(),
+    /** Raw national ID digits; stored masked. Null clears. */
+    nid: z.union([rwandaNidRequiredSchema, z.null()]).optional(),
   })
-  .refine((v) => v.name !== undefined || v.phone !== undefined, {
-    message: "Provide a name or phone to update",
-  });
+  .refine(
+    (v) =>
+      v.name !== undefined ||
+      v.phone !== undefined ||
+      v.workingProvince !== undefined ||
+      v.workingDistrict !== undefined ||
+      v.nid !== undefined,
+    { message: "Provide at least one profile field to update" },
+  );
 
 export const changePasswordBodySchema = z
   .object({

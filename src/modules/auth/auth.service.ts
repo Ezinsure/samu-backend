@@ -3,6 +3,7 @@ import { errors } from "../../lib/errors.js";
 import { logger } from "../../lib/logger.js";
 import { hashPassword, verifyPassword } from "../../lib/password.js";
 import { prisma } from "../../lib/prisma.js";
+import { getSignedObjectUrl } from "../../lib/storage.js";
 import {
   generateRefreshToken,
   hashRefreshToken,
@@ -21,11 +22,31 @@ export type PublicUser = {
   status: User["status"];
   phone: string | null;
   avatarInitials: string | null;
+  /** Short-lived signed URL when a photo is stored; otherwise null. */
+  avatarUrl: string | null;
+  workingProvince: string | null;
+  workingDistrict: string | null;
+  nidMasked: string | null;
   agentId: string | null;
   lastLoginAt: Date | null;
 };
 
-export function toPublicUser(user: User): PublicUser {
+const AVATAR_URL_TTL_SECONDS = 12 * 60 * 60;
+
+async function resolveAvatarUrl(
+  avatarKeyOrUrl: string | null | undefined,
+): Promise<string | null> {
+  if (!avatarKeyOrUrl) return null;
+  if (/^https?:\/\//i.test(avatarKeyOrUrl)) return avatarKeyOrUrl;
+  try {
+    return await getSignedObjectUrl(avatarKeyOrUrl, AVATAR_URL_TTL_SECONDS);
+  } catch (error) {
+    logger.warn({ err: error }, "Could not sign avatar URL");
+    return null;
+  }
+}
+
+export async function toPublicUser(user: User): Promise<PublicUser> {
   return {
     id: user.id,
     email: user.email,
@@ -34,6 +55,10 @@ export function toPublicUser(user: User): PublicUser {
     status: user.status,
     phone: user.phone,
     avatarInitials: user.avatarInitials,
+    avatarUrl: await resolveAvatarUrl(user.avatarUrl),
+    workingProvince: user.workingProvince,
+    workingDistrict: user.workingDistrict,
+    nidMasked: user.nidMasked,
     agentId: user.agentId,
     lastLoginAt: user.lastLoginAt,
   };
@@ -77,7 +102,7 @@ export async function registerUser(input: RegisterBody): Promise<PublicUser> {
   });
 
   logger.info({ userId: user.id, email: user.email }, "User registered (pending)");
-  return toPublicUser(user);
+  return await toPublicUser(user);
 }
 
 /**
@@ -228,7 +253,7 @@ export async function issueSession(user: User): Promise<AuthSession> {
   });
 
   return {
-    user: toPublicUser(user),
+    user: await toPublicUser(user),
     accessToken,
     refreshToken,
   };

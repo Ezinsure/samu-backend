@@ -14,7 +14,9 @@
     "prisma:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:users": "tsx prisma/seed.ts --users",
-    "db:reset:users": "prisma migrate reset --force --skip-seed && tsx prisma/seed.ts --users"
+    "db:seed:uat": "tsx prisma/seed.ts --uat",
+    "db:reset:users": "prisma migrate reset --force --skip-seed && tsx prisma/seed.ts --users",
+    "db:reset:uat": "prisma migrate reset --force --skip-seed && tsx prisma/seed.ts --uat"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1153.0",
@@ -31,6 +33,7 @@
     "multer": "^2.4.0",
     "pino": "^9.9.5",
     "pino-http": "^10.5.0",
+    "xlsx": "^0.18.5",
     "zod": "^4.1.9"
   },
   "devDependencies": {

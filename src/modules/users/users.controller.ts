@@ -1,5 +1,6 @@
 import type { Request, RequestHandler } from "express";
 import { errors } from "../../lib/errors.js";
+import * as coaImport from "./coa-import.service.js";
 import {
   setPasswordSchema,
   userCreateSchema,
@@ -46,6 +47,49 @@ export const create: RequestHandler = async (req, res, next) => {
     if (!req.user) throw errors.unauthorized();
     const body = userCreateSchema.parse(req.body);
     const result = await usersService.createUser(body, req.user, requestMeta(req));
+    res.status(201).json({ data: result });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** GET /api/v1/users/coa-import-template.csv — sample CSV for COA bulk import. */
+export const downloadCoaImportTemplate: RequestHandler = async (req, res, next) => {
+  try {
+    if (!req.user) throw errors.unauthorized();
+    if (req.user.role !== "ADMIN") throw errors.forbidden();
+    const csv = coaImport.coaImportTemplateCsv();
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      'attachment; filename="coa-import-template.csv"',
+    );
+    res.send(csv);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/v1/users/import-coas — Excel/CSV bulk provision of COA accounts
+ * with Resend set-password invites.
+ */
+export const importCoas: RequestHandler = async (req, res, next) => {
+  try {
+    if (!req.user) throw errors.unauthorized();
+    const file = req.file;
+    if (!file) {
+      throw errors.badRequest("Attach a CSV or Excel file as field `file`");
+    }
+    const result = await coaImport.importCoaAccounts(
+      {
+        buffer: file.buffer,
+        originalname: file.originalname || "import.csv",
+        size: file.size,
+      },
+      req.user,
+      requestMeta(req),
+    );
     res.status(201).json({ data: result });
   } catch (error) {
     next(error);

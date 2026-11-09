@@ -208,20 +208,33 @@ enum MessageStatus {
   stub_failed
 }
 
+/// How a COA imihigo metric collects proof.
+enum CoaEvidenceType {
+  client_rows
+  file_upload
+  auto_irembo
+}
+
 model User {
-  id             String     @id @default(cuid())
-  email          String     @unique
-  phone          String?
-  name           String
-  passwordHash   String     @map("password_hash")
-  role           UserRole
-  status         UserStatus @default(pending)
-  avatarInitials String?    @map("avatar_initials")
+  id               String     @id @default(cuid())
+  email            String     @unique
+  phone            String?
+  name             String
+  passwordHash     String     @map("password_hash")
+  role             UserRole
+  status           UserStatus @default(pending)
+  avatarInitials   String?    @map("avatar_initials")
+  /// R2 object key or public URL for profile photo (Phase 7).
+  avatarUrl        String?    @map("avatar_url")
+  /// Optional national ID (masked display / optional on COA import).
+  nidMasked        String?    @map("nid_masked")
+  workingProvince  String?    @map("working_province")
+  workingDistrict  String?    @map("working_district")
   /// Optional link for AGENT-role portal users (set when agent account is provisioned).
-  agentId        String?    @unique @map("agent_id")
-  lastLoginAt    DateTime?  @map("last_login_at")
-  createdAt      DateTime   @default(now()) @map("created_at")
-  updatedAt      DateTime   @updatedAt @map("updated_at")
+  agentId          String?    @unique @map("agent_id")
+  lastLoginAt      DateTime?  @map("last_login_at")
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt @map("updated_at")
 
   agent                 Agent?                @relation("UserPortalAgent", fields: [agentId], references: [id], onDelete: SetNull)
   refreshTokens         RefreshToken[]
@@ -248,9 +261,12 @@ model User {
   auditLogs             AuditLog[]            @relation("AuditActor")
   settingsUpdates       SystemSettings[]      @relation("SettingsUpdater")
   messagesSent          MessageOutbox[]       @relation("MessageSender")
+  coaMetricOverrides    CoaMetricOverride[]   @relation("CoaMetricOverrideCoa")
+  coaPerformanceEntries CoaPerformanceEntry[] @relation("CoaPerformanceCoa")
 
   @@index([role])
   @@index([status])
+  @@index([workingDistrict])
   @@map("users")
 }
 
@@ -858,4 +874,106 @@ model MessageOutbox {
   @@index([visitId])
   @@index([agentId])
   @@map("message_outbox")
+}
+
+/// Global COA imihigo metric catalog (shared targets; per-COA overrides later).
+model CoaMetric {
+  id            String          @id @default(cuid())
+  key           String          @unique
+  label         String
+  description   String?
+  /// Admin note shown in UI (e.g. solar priority guidance).
+  adminNote     String?         @map("admin_note")
+  monthlyTarget Int             @map("monthly_target")
+  evidenceType  CoaEvidenceType @map("evidence_type")
+  enabled       Boolean         @default(true)
+  sortOrder     Int             @default(0) @map("sort_order")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  overrides CoaMetricOverride[]
+  entries   CoaPerformanceEntry[]
+
+  @@index([enabled])
+  @@index([sortOrder])
+  @@map("coa_metrics")
+}
+
+/// Reserved for later per-COA target/enabled overrides (no UI in Phase 1–5).
+model CoaMetricOverride {
+  id            String   @id @default(cuid())
+  metricId      String   @map("metric_id")
+  coaUserId     String   @map("coa_user_id")
+  monthlyTarget Int?     @map("monthly_target")
+  enabled       Boolean?
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  metric CoaMetric @relation(fields: [metricId], references: [id], onDelete: Cascade)
+  coa    User      @relation("CoaMetricOverrideCoa", fields: [coaUserId], references: [id], onDelete: Cascade)
+
+  @@unique([metricId, coaUserId])
+  @@index([coaUserId])
+  @@map("coa_metric_overrides")
+}
+
+/// One COA logging session against a metric for a calendar month (YYYY-MM).
+model CoaPerformanceEntry {
+  id        String   @id @default(cuid())
+  metricId  String   @map("metric_id")
+  coaUserId String   @map("coa_user_id")
+  /// Calendar month key, e.g. 2026-11.
+  month     String
+  notes     String?
+  loggedAt  DateTime @default(now()) @map("logged_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  metric      CoaMetric           @relation(fields: [metricId], references: [id], onDelete: Restrict)
+  coa         User                @relation("CoaPerformanceCoa", fields: [coaUserId], references: [id], onDelete: Cascade)
+  clientRows  CoaEvidenceClient[]
+  files       CoaEvidenceFile[]
+
+  @@index([coaUserId, month])
+  @@index([metricId, month])
+  @@index([loggedAt])
+  @@map("coa_performance_entries")
+}
+
+/// Structured client-row evidence for metrics that require contact details.
+model CoaEvidenceClient {
+  id              String   @id @default(cuid())
+  entryId         String   @map("entry_id")
+  fullName        String   @map("full_name")
+  phone           String?
+  email           String?
+  nidNumber       String?  @map("nid_number")
+  /// BK account number or similar reference.
+  accountRef      String?  @map("account_ref")
+  /// 4G SIM number for internet subscriptions.
+  simNumber       String?  @map("sim_number")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  entry CoaPerformanceEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@index([entryId])
+  @@index([phone])
+  @@map("coa_evidence_clients")
+}
+
+/// File evidence stored in R2/S3 (instalment agreements, certificates, etc.).
+model CoaEvidenceFile {
+  id           String   @id @default(cuid())
+  entryId      String   @map("entry_id")
+  storageKey   String   @map("storage_key")
+  originalName String   @map("original_name")
+  contentType  String   @map("content_type")
+  sizeBytes    Int      @map("size_bytes")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  entry CoaPerformanceEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@index([entryId])
+  @@index([storageKey])
+  @@map("coa_evidence_files")
 }

@@ -1,4 +1,11 @@
 import { z } from "zod";
+import {
+  normalizeNidDigits,
+  personNameSchema,
+  rwandaMobileOptionalSchema,
+  rwandaMobileSchema,
+  safeShortText,
+} from "../../lib/field-validation.js";
 
 export const agentStatusSchema = z.enum([
   "Candidate",
@@ -29,16 +36,16 @@ export const agentServicesSchema = z.object({
 });
 
 export const geoSchema = z.object({
-  province: z.string().trim().min(1).max(120),
-  district: z.string().trim().min(1).max(120),
-  sector: z.string().trim().min(1).max(120),
-  cell: z.string().trim().min(1).max(120),
-  village: z.string().trim().max(120).optional(),
+  province: safeShortText(120, "Province").min(1),
+  district: safeShortText(120, "District").min(1),
+  sector: safeShortText(120, "Sector").min(1),
+  cell: safeShortText(120, "Cell").min(1),
+  village: safeShortText(120, "Village").optional(),
 });
 
 export const agentInputSchema = z.object({
-  name: z.string().trim().min(2).max(120),
-  phone: z.string().trim().min(7).max(32),
+  name: personNameSchema,
+  phone: rwandaMobileSchema,
   email: z
     .union([z.string().email().max(320), z.literal("")])
     .optional(),
@@ -51,25 +58,38 @@ export const agentInputSchema = z.object({
   }),
   tcUserId: z.string().min(1).nullable().optional(),
   age: z.number().int().min(16).max(100).optional(),
-  gender: z.string().trim().max(40).optional(),
-  education: z.string().trim().max(120).optional(),
-  tin: z.string().trim().max(40).optional(),
-  businessType: z.string().trim().max(200).optional(),
-  venue: z.string().trim().max(200).optional(),
-  emergencyContactName: z.string().trim().max(120).optional(),
-  emergencyContactPhone: z.string().trim().max(32).optional(),
-  criminalRecordBillId: z.string().trim().max(80).optional(),
+  gender: safeShortText(40, "Gender").optional(),
+  education: safeShortText(120, "Education").optional(),
+  tin: safeShortText(40, "TIN").optional(),
+  businessType: safeShortText(200, "Business type").optional(),
+  venue: safeShortText(200, "Venue").optional(),
+  emergencyContactName: z
+    .union([personNameSchema, z.literal("")])
+    .optional(),
+  emergencyContactPhone: rwandaMobileOptionalSchema,
+  criminalRecordBillId: safeShortText(80, "Bill ID").optional(),
   certificateStorageKey: z.string().trim().max(500).optional(),
   hasPrinterScanner: z.boolean().optional(),
   hasComputer: z.boolean().optional(),
   officeType: officeTypeSchema.optional(),
-  building: z.string().trim().max(200).optional(),
+  building: safeShortText(200, "Building").optional(),
   services: agentServicesSchema.optional(),
   clientsRegistered: z.number().int().min(0).optional(),
   recruitedThisMonth: z.boolean().optional(),
   reactivatedThisMonth: z.boolean().optional(),
   nidVerified: z.boolean().optional(),
-  nidNumber: z.string().trim().max(20).optional(),
+  /** Required on create (FE); optional on edit when left blank. */
+  nidNumber: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => {
+      if (!v) return undefined;
+      return normalizeNidDigits(v);
+    })
+    .refine((v) => v === undefined || /^\d{16}$/.test(v), {
+      message: "National ID must be exactly 16 digits",
+    }),
 });
 
 export const agentListQuerySchema = z.object({

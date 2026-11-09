@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  personNameSchema,
+  rwandaMobileOptionalSchema,
+} from "../../lib/field-validation.js";
 import { passwordSchema } from "../auth/auth.schemas.js";
 
 /** Roles an admin may assign when creating/updating users (product surface). */
@@ -27,8 +31,8 @@ const emailSchema = z
   .max(320)
   .transform((v) => v.toLowerCase().trim());
 
-const nameSchema = z.string().trim().min(2).max(120);
-const phoneSchema = z.string().trim().min(7).max(32);
+const nameSchema = personNameSchema;
+const phoneSchema = rwandaMobileOptionalSchema;
 
 export const userIdParamSchema = z.object({ id: z.string().min(1) });
 

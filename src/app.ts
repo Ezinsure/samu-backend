@@ -30,8 +30,9 @@ import { publicNetworkRouter } from "./modules/public-network/public-network.rou
 import { inviteLinksRouter } from "./modules/invite-links/invite-links.routes.js";
 import { supportRouter } from "./modules/support/support.routes.js";
 import { trainingRouter } from "./modules/training/training.routes.js";
-import { fieldWorkRouter } from "./modules/field-work/field-work.routes.js";
 import { visitCoverageRouter } from "./modules/visit-coverage/visit-coverage.routes.js";
+import { coaMetricsRouter } from "./modules/coa-metrics/coa-metrics.routes.js";
+import { coaPerformanceRouter } from "./modules/coa-performance/coa-performance.routes.js";
 
 /**
  * Builds the Express application (no listen).
@@ -93,7 +94,8 @@ export function createApp() {
   api.use("/invite-links", inviteLinksRouter);
   api.use("/support", supportRouter);
   api.use("/training", trainingRouter);
-  api.use("/field-work", fieldWorkRouter);
+  api.use("/coa-metrics", coaMetricsRouter);
+  api.use("/coa-performance", coaPerformanceRouter);
   api.use("/visit-coverage", visitCoverageRouter);
   app.use("/api/v1", api);
 
