@@ -221,6 +221,8 @@ model User {
   phone            String?
   name             String
   passwordHash     String     @map("password_hash")
+  /// When true, the user must set a new password after signing in (COA import temp passwords).
+  mustChangePassword Boolean  @default(false) @map("must_change_password")
   role             UserRole
   status           UserStatus @default(pending)
   avatarInitials   String?    @map("avatar_initials")

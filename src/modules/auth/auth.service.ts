@@ -28,6 +28,7 @@ export type PublicUser = {
   workingDistrict: string | null;
   nidMasked: string | null;
   agentId: string | null;
+  mustChangePassword: boolean;
   lastLoginAt: Date | null;
 };
 
@@ -60,6 +61,7 @@ export async function toPublicUser(user: User): Promise<PublicUser> {
     workingDistrict: user.workingDistrict,
     nidMasked: user.nidMasked,
     agentId: user.agentId,
+    mustChangePassword: user.mustChangePassword,
     lastLoginAt: user.lastLoginAt,
   };
 }

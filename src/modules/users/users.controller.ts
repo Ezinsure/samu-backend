@@ -71,8 +71,32 @@ export const downloadCoaImportTemplate: RequestHandler = async (req, res, next) 
 };
 
 /**
+ * POST /api/v1/users/import-coas/preview — parse + validate without creating users.
+ */
+export const previewImportCoas: RequestHandler = async (req, res, next) => {
+  try {
+    if (!req.user) throw errors.unauthorized();
+    const file = req.file;
+    if (!file) {
+      throw errors.badRequest("Attach a CSV or Excel file as field `file`");
+    }
+    const result = await coaImport.previewCoaImport(
+      {
+        buffer: file.buffer,
+        originalname: file.originalname || "import.csv",
+        size: file.size,
+      },
+      req.user,
+    );
+    res.json({ data: result });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * POST /api/v1/users/import-coas — Excel/CSV bulk provision of COA accounts
- * with Resend set-password invites.
+ * with branded temporary-password emails (must change on first login).
  */
 export const importCoas: RequestHandler = async (req, res, next) => {
   try {
