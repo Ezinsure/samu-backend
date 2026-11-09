@@ -55,6 +55,20 @@ export function generateOneTimeToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
+/**
+ * Human-typable temporary password for COA bulk import emails.
+ * Format: `Samu-` + 10 unambiguous alphanumeric characters.
+ */
+export function generateTempPassword(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const bytes = randomBytes(10);
+  let body = "";
+  for (const byte of bytes) {
+    body += alphabet[byte! % alphabet.length]!;
+  }
+  return `Samu-${body}`;
+}
+
 /** Opaque refresh token (random) — only the hash is stored in DB. */
 export function generateRefreshToken(): string {
   return randomBytes(48).toString("base64url");

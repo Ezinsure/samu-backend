@@ -163,7 +163,10 @@ export async function changeOwnPassword(
   const now = new Date();
 
   const [updated] = await prisma.$transaction([
-    prisma.user.update({ where: { id: userId }, data: { passwordHash } }),
+    prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash, mustChangePassword: false },
+    }),
     prisma.refreshToken.updateMany({
       where: { userId, revokedAt: null },
       data: { revokedAt: now },

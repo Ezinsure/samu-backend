@@ -9,6 +9,7 @@ import {
   getById,
   importCoas,
   list,
+  previewImportCoas,
   remove,
   sendResetLink,
   setPassword,
@@ -41,6 +42,13 @@ const importLimiter = rateLimit({
 
 usersRouter.get("/", list);
 usersRouter.get("/coa-import-template.csv", downloadCoaImportTemplate);
+usersRouter.post(
+  "/import-coas/preview",
+  requireWrite,
+  importLimiter,
+  importUpload.single("file"),
+  previewImportCoas,
+);
 usersRouter.post(
   "/import-coas",
   requireWrite,

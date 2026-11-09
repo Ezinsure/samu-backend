@@ -60,3 +60,78 @@ export function accountInviteEmail(input: LinkEmailInput): MailMessage {
     "Set your password",
   );
 }
+
+type CoaCredentialsEmailInput = {
+  to: string;
+  name: string;
+  email: string;
+  temporaryPassword: string;
+  loginUrl: string;
+};
+
+/**
+ * Branded welcome email for bulk-imported COA accounts: login URL + temporary
+ * password, with a clear instruction to change the password after first sign-in.
+ */
+export function coaCredentialsEmail(input: CoaCredentialsEmailInput): MailMessage {
+  const name = escapeHtml(input.name);
+  const email = escapeHtml(input.email);
+  const password = escapeHtml(input.temporaryPassword);
+  const loginUrl = escapeHtml(input.loginUrl);
+
+  const text = [
+    `Hello ${input.name},`,
+    "",
+    "Welcome to SAMU — Solektra Agent Monitoring Utility.",
+    "A Community Opportunity Associate (COA) account has been created for you.",
+    "",
+    `Sign in at: ${input.loginUrl}`,
+    `Email: ${input.email}`,
+    `Temporary password: ${input.temporaryPassword}`,
+    "",
+    "Please change this password as soon as you sign in (Profile → Change password).",
+    "If you did not expect this email, contact your Solektra administrator.",
+    "",
+    "— Solektra / SAMU",
+  ].join("\n");
+
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#0f172a;background:#f8fafc;padding:24px">
+  <div style="background:#0b1f33;color:#fff;border-radius:12px 12px 0 0;padding:20px 24px">
+    <div style="font-size:13px;letter-spacing:0.08em;text-transform:uppercase;opacity:0.8">Solektra</div>
+    <div style="font-size:22px;font-weight:700;margin-top:4px">SAMU</div>
+    <div style="font-size:13px;opacity:0.85;margin-top:4px">Solektra Agent Monitoring Utility</div>
+  </div>
+  <div style="background:#ffffff;border:1px solid #e2e8f0;border-top:0;border-radius:0 0 12px 12px;padding:24px">
+    <p style="margin:0 0 12px">Hello ${name},</p>
+    <p style="margin:0 0 16px">A <strong>Community Opportunity Associate (COA)</strong> account has been created for you. Use the details below to sign in.</p>
+    <table style="width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px">
+      <tr>
+        <td style="padding:8px 0;color:#475569;width:140px">Email</td>
+        <td style="padding:8px 0;font-weight:600">${email}</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 0;color:#475569">Temporary password</td>
+        <td style="padding:8px 0;font-family:Consolas,Monaco,monospace;font-weight:700;letter-spacing:0.02em">${password}</td>
+      </tr>
+    </table>
+    <p style="margin:0 0 20px">
+      <a href="${loginUrl}" style="background:#2563eb;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:600">Sign in to SAMU</a>
+    </p>
+    <p style="margin:0 0 8px;font-size:14px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px">
+      <strong>Important:</strong> Change this temporary password as soon as you sign in
+      (Profile → Change password).
+    </p>
+    <p style="margin:16px 0 0;font-size:12px;color:#64748b">
+      Or open: ${loginUrl}<br/>
+      If you did not expect this email, contact your Solektra administrator.
+    </p>
+  </div>
+</div>`;
+
+  return {
+    to: input.to,
+    subject: "Your SAMU COA account — temporary password inside",
+    text,
+    html,
+  };
+}
