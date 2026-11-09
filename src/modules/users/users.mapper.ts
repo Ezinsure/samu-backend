@@ -31,6 +31,7 @@ export async function toUserRow(user: UserRow) {
     status: user.status,
     avatarInitials: user.avatarInitials,
     avatarUrl: await signedAvatar(user.avatarUrl),
+    nidMasked: user.nidMasked,
     workingDistrict: user.workingDistrict,
     workingProvince: user.workingProvince,
     agentId: user.agentId,

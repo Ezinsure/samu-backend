@@ -32,4 +32,5 @@ export const errors = {
   notFound: (message = "Resource not found") =>
     new AppError(404, "NOT_FOUND", message),
   conflict: (message: string) => new AppError(409, "CONFLICT", message),
+  gone: (message: string) => new AppError(410, "GONE", message),
 };
