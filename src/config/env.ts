@@ -39,6 +39,18 @@ const envSchema = z.object({
   PASSWORD_INVITE_TTL: z.string().default("3d"),
   /** Max GPS distance (meters) from agent registered location before flagging. */
   GPS_DISTANCE_METERS: z.coerce.number().int().positive().default(10),
+  /**
+   * Ezinsure partner verification (Phase 8).
+   * When EZINSURE_VERIFY_URL is unset (or MODE=mock), SAMU uses the mock adapter.
+   * The partner implements POST EZINSURE_VERIFY_URL — see DOCs/Ezinsure-Partner-Verify-API.md.
+   */
+  EZINSURE_VERIFY_MODE: z.enum(["mock", "http"]).default("mock"),
+  EZINSURE_VERIFY_URL: z.string().url().optional(),
+  EZINSURE_VERIFY_API_KEY: z.string().min(1).optional(),
+  /** Max applicants processed per verify run. */
+  EZINSURE_VERIFY_BATCH_LIMIT: z.coerce.number().int().min(1).max(1000).default(200),
+  /** Delay between outbound partner calls (ms) to stay rate-friendly. */
+  EZINSURE_VERIFY_DELAY_MS: z.coerce.number().int().min(0).max(10_000).default(150),
 });
 
 const parsed = envSchema.safeParse(process.env);
