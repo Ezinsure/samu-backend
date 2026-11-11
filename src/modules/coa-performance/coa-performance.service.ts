@@ -1,11 +1,18 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { errors } from "../../lib/errors.js";
 import {
   getSignedObjectUrl,
   uploadCoaEvidenceFile,
+  uploadObject,
 } from "../../lib/storage.js";
 import type { AuthUser } from "../../types/express.js";
 import { listMetrics } from "../coa-metrics/coa-metrics.service.js";
+import {
+  getVariant,
+  normalizeClientForVariant,
+  type NormalizedClientRow,
+} from "../coa-metrics/coa-metric-variants.service.js";
 import {
   CLIENT_FIELD_REQUIREMENTS,
   type CreatePerformanceEntryInput,
@@ -302,6 +309,11 @@ function toPublicEntry(entry: {
     nidNumber: string | null;
     accountRef: string | null;
     simNumber: string | null;
+    variantKey?: string | null;
+    data?: Prisma.JsonValue | null;
+    gpsLat?: number | null;
+    gpsLng?: number | null;
+    gpsPhotoKey?: string | null;
     createdAt: Date;
   }>;
   files?: Array<{
@@ -331,6 +343,14 @@ function toPublicEntry(entry: {
       nidNumber: c.nidNumber ?? undefined,
       accountRef: c.accountRef ?? undefined,
       simNumber: c.simNumber ?? undefined,
+      variantKey: c.variantKey ?? undefined,
+      data:
+        c.data && typeof c.data === "object" && !Array.isArray(c.data)
+          ? (c.data as Record<string, unknown>)
+          : undefined,
+      gpsLat: c.gpsLat ?? undefined,
+      gpsLng: c.gpsLng ?? undefined,
+      gpsPhotoKey: c.gpsPhotoKey ?? undefined,
       createdAt: c.createdAt.toISOString(),
     })),
     files: (entry.files ?? []).map((f) => ({
@@ -421,6 +441,12 @@ export async function createEntry(
 
   const metric = await prisma.coaMetric.findUnique({
     where: { key: input.metricKey },
+    include: {
+      variants: {
+        where: { enabled: true },
+        orderBy: { sortOrder: "asc" },
+      },
+    },
   });
   if (!metric || !metric.enabled) {
     throw errors.badRequest("Metric is unavailable");
@@ -444,16 +470,63 @@ export async function createEntry(
     throw errors.badRequest("Add at least one client row");
   }
 
-  const required = CLIENT_FIELD_REQUIREMENTS[metric.key] ?? ["phone"];
-  for (const [index, client] of clients.entries()) {
-    for (const field of required) {
-      const value = client[field];
-      if (!value || !String(value).trim()) {
-        throw errors.badRequest(
-          `Client ${index + 1}: ${field} is required for this metric`,
-        );
+  const hasVariants = metric.variants.length > 0;
+  const resolvedVariantKey =
+    input.variantKey?.trim() ||
+    clients.find((c) => c.variantKey)?.variantKey?.trim() ||
+    (hasVariants ? metric.variants[0]?.key : undefined);
+
+  if (hasVariants && !resolvedVariantKey) {
+    throw errors.badRequest("Choose an internet type (SIM, HBB, or OBB)");
+  }
+
+  let normalized: NormalizedClientRow[] = [];
+
+  if (hasVariants && resolvedVariantKey) {
+    const variant = await getVariant(metric.key, resolvedVariantKey);
+    normalized = clients.map((client, index) =>
+      normalizeClientForVariant(
+        {
+          ...client,
+          fullName: client.fullName,
+          data: client.data,
+          gpsLat: client.gpsLat,
+          gpsLng: client.gpsLng,
+          gpsPhotoKey: client.gpsPhotoKey,
+        },
+        variant.fieldSchema,
+        variant.key,
+        index,
+      ),
+    );
+  } else {
+    const required = CLIENT_FIELD_REQUIREMENTS[metric.key] ?? ["phone"];
+    for (const [index, client] of clients.entries()) {
+      if (!client.fullName?.trim()) {
+        throw errors.badRequest(`Client ${index + 1}: name is required`);
+      }
+      for (const field of required) {
+        const value = client[field];
+        if (!value || !String(value).trim()) {
+          throw errors.badRequest(
+            `Client ${index + 1}: ${field} is required for this metric`,
+          );
+        }
       }
     }
+    normalized = clients.map((c) => ({
+      fullName: c.fullName!.trim(),
+      phone: blankToNull(c.phone),
+      email: blankToNull(c.email),
+      nidNumber: blankToNull(c.nidNumber),
+      accountRef: blankToNull(c.accountRef),
+      simNumber: blankToNull(c.simNumber),
+      variantKey: null,
+      data: null,
+      gpsLat: null,
+      gpsLng: null,
+      gpsPhotoKey: null,
+    }));
   }
 
   const entry = await prisma.coaPerformanceEntry.create({
@@ -463,13 +536,18 @@ export async function createEntry(
       month: input.month,
       notes: input.notes?.trim() || null,
       clientRows: {
-        create: clients.map((c) => ({
-          fullName: c.fullName.trim(),
-          phone: blankToNull(c.phone),
-          email: blankToNull(c.email),
-          nidNumber: blankToNull(c.nidNumber),
-          accountRef: blankToNull(c.accountRef),
-          simNumber: blankToNull(c.simNumber),
+        create: normalized.map((c) => ({
+          fullName: c.fullName,
+          phone: c.phone,
+          email: c.email,
+          nidNumber: c.nidNumber,
+          accountRef: c.accountRef,
+          simNumber: c.simNumber,
+          variantKey: c.variantKey,
+          data: (c.data ?? undefined) as Prisma.InputJsonValue | undefined,
+          gpsLat: c.gpsLat,
+          gpsLng: c.gpsLng,
+          gpsPhotoKey: c.gpsPhotoKey,
         })),
       },
     },
@@ -484,6 +562,64 @@ export async function createEntry(
   });
 
   return toPublicEntry(entry);
+}
+
+/** Upload a GPS map screenshot used by HBB/OBB logging. */
+export async function uploadGpsPhoto(
+  file: {
+    buffer: Buffer;
+    originalname: string;
+    mimetype: string;
+    size: number;
+  },
+  actor: AuthUser,
+) {
+  if (!canActAsCoa(actor.role)) throw errors.forbidden();
+  if (!ALLOWED_EVIDENCE_TYPES.has(file.mimetype)) {
+    throw errors.badRequest("Only JPEG, PNG, or WebP images are allowed");
+  }
+  if (file.size > MAX_EVIDENCE_BYTES) {
+    throw errors.badRequest("File must be 10 MB or smaller");
+  }
+
+  const uploaded = await uploadObject({
+    prefix: "coa-gps",
+    uploaderUserId: actor.id,
+    fileName: file.originalname || "gps.jpg",
+    contentType: file.mimetype,
+    body: file.buffer,
+  });
+
+  return {
+    storageKey: uploaded.storageKey,
+    contentType: uploaded.contentType,
+    sizeBytes: uploaded.sizeBytes,
+  };
+}
+
+/** Short-lived URL for a GPS photo stored on a client row. */
+export async function getGpsPhotoViewUrl(clientId: string, actor: AuthUser) {
+  if (!canActAsCoa(actor.role) && actor.role !== "OPERATIONS_MANAGER" && actor.role !== "MD_VIEWER") {
+    throw errors.forbidden();
+  }
+
+  const client = await prisma.coaEvidenceClient.findUnique({
+    where: { id: clientId },
+    include: {
+      entry: { select: { coaUserId: true } },
+    },
+  });
+  if (!client?.gpsPhotoKey) throw errors.notFound("GPS photo not found");
+
+  if (
+    actor.role === "COMMUNITY_OPPORTUNITY_ASSOCIATE" &&
+    client.entry.coaUserId !== actor.id
+  ) {
+    throw errors.forbidden();
+  }
+
+  const url = await getSignedObjectUrl(client.gpsPhotoKey, 15 * 60);
+  return { id: client.id, url, storageKey: client.gpsPhotoKey };
 }
 
 export async function deleteEntry(entryId: string, actor: AuthUser) {

@@ -61,6 +61,12 @@ async function seedCoaMetrics(): Promise<void> {
       `  ✓ ${seed.key} (target ${seed.monthlyTarget}, ${seed.enabled ? "enabled" : "disabled"})`,
     );
   }
+
+  const { ensureCoaMetricVariants } = await import(
+    "../src/modules/coa-metrics/coa-metric-variants.service.js"
+  );
+  const variants = await ensureCoaMetricVariants();
+  console.log(`  ✓ ${variants} metric variants upserted`);
 }
 
 async function seedUsers(

@@ -4,6 +4,11 @@ import { writeAuditLog } from "../../lib/audit.js";
 import type { AuthUser } from "../../types/express.js";
 import { COA_METRIC_CATALOG } from "./coa-metrics.catalog.js";
 import type { UpdateCoaMetricInput } from "./coa-metrics.schemas.js";
+import {
+  ensureCoaMetricVariants,
+  listVariantsForMetric,
+  type PublicCoaMetricVariant,
+} from "./coa-metric-variants.service.js";
 
 function canReadCatalog(role: AuthUser["role"]): boolean {
   return (
@@ -25,20 +30,24 @@ export type PublicCoaMetric = {
   enabled: boolean;
   sortOrder: number;
   updatedAt: string;
+  variants?: PublicCoaMetricVariant[];
 };
 
-function toPublic(row: {
-  id: string;
-  key: string;
-  label: string;
-  description: string | null;
-  adminNote: string | null;
-  monthlyTarget: number;
-  evidenceType: string;
-  enabled: boolean;
-  sortOrder: number;
-  updatedAt: Date;
-}): PublicCoaMetric {
+function toPublic(
+  row: {
+    id: string;
+    key: string;
+    label: string;
+    description: string | null;
+    adminNote: string | null;
+    monthlyTarget: number;
+    evidenceType: string;
+    enabled: boolean;
+    sortOrder: number;
+    updatedAt: Date;
+  },
+  variants?: PublicCoaMetricVariant[],
+): PublicCoaMetric {
   return {
     id: row.id,
     key: row.key,
@@ -50,10 +59,11 @@ function toPublic(row: {
     enabled: row.enabled,
     sortOrder: row.sortOrder,
     updatedAt: row.updatedAt.toISOString(),
+    ...(variants && variants.length > 0 ? { variants } : {}),
   };
 }
 
-/** Idempotent upsert of the global imihigo catalog. */
+/** Idempotent upsert of the global imihigo catalog (+ logging variants). */
 export async function ensureCoaMetricCatalog(): Promise<number> {
   let upserted = 0;
   for (const seed of COA_METRIC_CATALOG) {
@@ -80,6 +90,7 @@ export async function ensureCoaMetricCatalog(): Promise<number> {
     });
     upserted += 1;
   }
+  await ensureCoaMetricVariants();
   return upserted;
 }
 
@@ -97,7 +108,15 @@ export async function listMetrics(
     orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
   });
 
-  return rows.map(toPublic);
+  const withVariants = await Promise.all(
+    rows.map(async (row) => {
+      const variants = await listVariantsForMetric(row.id, {
+        includeDisabled: false,
+      });
+      return toPublic(row, variants);
+    }),
+  );
+  return withVariants;
 }
 
 export async function getMetricByKey(

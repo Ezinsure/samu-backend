@@ -895,10 +895,33 @@ model CoaMetric {
 
   overrides CoaMetricOverride[]
   entries   CoaPerformanceEntry[]
+  variants  CoaMetricVariant[]
 
   @@index([enabled])
   @@index([sortOrder])
   @@map("coa_metrics")
+}
+
+/// Optional logging variants for a metric (e.g. SIM vs HBB vs OBB internet).
+/// `fieldSchema` is a JSON array of field definitions used by FE + BE validation.
+model CoaMetricVariant {
+  id          String   @id @default(cuid())
+  metricId    String   @map("metric_id")
+  key         String
+  label       String
+  description String?
+  fieldSchema Json     @map("field_schema")
+  enabled     Boolean  @default(true)
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  metric CoaMetric @relation(fields: [metricId], references: [id], onDelete: Cascade)
+
+  @@unique([metricId, key])
+  @@index([metricId, sortOrder])
+  @@index([enabled])
+  @@map("coa_metric_variants")
 }
 
 /// Reserved for later per-COA target/enabled overrides (no UI in Phase 1–5).
@@ -954,12 +977,21 @@ model CoaEvidenceClient {
   accountRef      String?  @map("account_ref")
   /// 4G SIM number for internet subscriptions.
   simNumber       String?  @map("sim_number")
+  /// Logging variant key (e.g. sim, hbb, obb). Null = legacy SIM-style row.
+  variantKey      String?  @map("variant_key")
+  /// Extra variant fields (router serial, speed, agent name, etc.).
+  data            Json?
+  gpsLat          Float?   @map("gps_lat")
+  gpsLng          Float?   @map("gps_lng")
+  /// Optional R2 key for a GPS screenshot / map capture.
+  gpsPhotoKey     String?  @map("gps_photo_key")
   createdAt       DateTime @default(now()) @map("created_at")
 
   entry CoaPerformanceEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
 
   @@index([entryId])
   @@index([phone])
+  @@index([variantKey])
   @@map("coa_evidence_clients")
 }
 
