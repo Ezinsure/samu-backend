@@ -321,6 +321,7 @@ model User {
   stockTransfersTo      StockTransfer[]       @relation("StockTransferTo")
   stockTransfersCreated StockTransfer[]       @relation("StockTransferCreator")
   stockTransferEvents   StockTransferEvent[]  @relation("StockTransferEventActor")
+  partnerApplicantsLogged PartnerApplicant[]  @relation("PartnerApplicantLogger")
 
   @@index([role])
   @@index([status])
@@ -1021,6 +1022,7 @@ model CoaPerformanceEntry {
   coa         User                @relation("CoaPerformanceCoa", fields: [coaUserId], references: [id], onDelete: Cascade)
   clientRows  CoaEvidenceClient[]
   files       CoaEvidenceFile[]
+  partnerApplicants PartnerApplicant[]
 
   @@index([coaUserId, month])
   @@index([metricId, month])
@@ -1225,4 +1227,48 @@ model StockTransferEvent {
   @@index([transferId, createdAt])
   @@index([actorUserId])
   @@map("stock_transfer_events")
+}
+
+/// Partner verification lifecycle for logged applicants (Ezinsure Phase 7+).
+enum PartnerVerificationStatus {
+  unverified
+  verified
+  not_found
+  error
+}
+
+/// Applicants logged against partner programs (e.g. Ezinsure agents applied).
+model PartnerApplicant {
+  id                 String                    @id @default(cuid())
+  partnerKey         String                    @map("partner_key")
+  fullName           String                    @map("full_name")
+  phone              String?
+  email              String?
+  nidNumber          String?                   @map("nid_number")
+  province           String?
+  district           String?
+  sector             String?
+  cell               String?
+  /// Calendar month key (YYYY-MM), denormalized from the performance entry.
+  month              String
+  loggedByUserId     String                    @map("logged_by_user_id")
+  entryId            String?                   @map("entry_id")
+  /// Link back to evidence client row (unique for backfill / delete sync).
+  clientRowId        String?                   @unique @map("client_row_id")
+  verificationStatus PartnerVerificationStatus @default(unverified) @map("verification_status")
+  externalRef        String?                   @map("external_ref")
+  lastCheckPayload   Json?                     @map("last_check_payload")
+  verifiedAt         DateTime?                 @map("verified_at")
+  createdAt          DateTime                  @default(now()) @map("created_at")
+  updatedAt          DateTime                  @updatedAt @map("updated_at")
+
+  loggedBy User                 @relation("PartnerApplicantLogger", fields: [loggedByUserId], references: [id], onDelete: Cascade)
+  entry    CoaPerformanceEntry? @relation(fields: [entryId], references: [id], onDelete: SetNull)
+
+  @@index([partnerKey, month])
+  @@index([loggedByUserId, month])
+  @@index([verificationStatus])
+  @@index([entryId])
+  @@index([partnerKey, verificationStatus])
+  @@map("partner_applicants")
 }

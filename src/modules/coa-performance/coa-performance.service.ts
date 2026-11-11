@@ -22,6 +22,11 @@ import {
   CLIENT_FIELD_REQUIREMENTS,
   type CreatePerformanceEntryInput,
 } from "./coa-performance.schemas.js";
+import { PARTNER_EZINSURE } from "../partners/partners.schemas.js";
+import {
+  countLoggedApplicants,
+  countVerifiedApplicants,
+} from "../partners/partners.service.js";
 
 const ALLOWED_EVIDENCE_TYPES = new Set([
   "application/pdf",
@@ -96,14 +101,35 @@ async function progressForCoa(
     },
   });
 
+  const ezinsureLogged =
+    enabled.some((m) => m.key === "ezinsure_agents_applied")
+      ? await countLoggedApplicants({
+          partnerKey: PARTNER_EZINSURE,
+          loggedByUserId: coaUserId,
+          month: period,
+        })
+      : 0;
+  const ezinsureVerified =
+    enabled.some((m) => m.key === "ezinsure_agents_applied")
+      ? await countVerifiedApplicants({
+          partnerKey: PARTNER_EZINSURE,
+          loggedByUserId: coaUserId,
+          month: period,
+        })
+      : 0;
+
   return enabled.map((metric) => {
     const totals = totalsByMetric.get(metric.id) ?? {
       clients: 0,
       files: 0,
     };
     let actual = 0;
+    let verified: number | null = null;
     if (metric.evidenceType === "auto_irembo") {
       actual = iremboCount;
+    } else if (metric.key === "ezinsure_agents_applied") {
+      actual = ezinsureLogged;
+      verified = ezinsureVerified;
     } else if (metric.evidenceType === "client_rows") {
       actual = totals.clients;
     } else if (metric.evidenceType === "file_upload") {
@@ -113,6 +139,7 @@ async function progressForCoa(
     return {
       metric,
       actual,
+      verified,
       target: metric.monthlyTarget,
       remaining: Math.max(0, metric.monthlyTarget - actual),
       percent:
@@ -210,7 +237,11 @@ export function adminReportToCsv(
     "metricsMet",
     "metricsTotal",
     "overallPercent",
-    ...metricKeys.flatMap((key) => [`${key}_actual`, `${key}_target`]),
+    ...metricKeys.flatMap((key) =>
+      key === "ezinsure_agents_applied"
+        ? [`${key}_logged`, `${key}_verified`, `${key}_target`]
+        : [`${key}_actual`, `${key}_target`],
+    ),
   ].join(",");
 
   const escape = (value: string | number | undefined) => {
@@ -223,6 +254,9 @@ export function adminReportToCsv(
     const byKey = new Map(row.progress.map((p) => [p.metric.key, p]));
     const metricCols = metricKeys.flatMap((key) => {
       const p = byKey.get(key);
+      if (key === "ezinsure_agents_applied") {
+        return [p?.actual ?? 0, p?.verified ?? 0, p?.target ?? 0];
+      }
       return [p?.actual ?? 0, p?.target ?? 0];
     });
     return [
@@ -512,6 +546,7 @@ export async function createEntry(
     );
   } else {
     const required = CLIENT_FIELD_REQUIREMENTS[metric.key] ?? ["phone"];
+    const requireGeo = metric.key === "ezinsure_agents_applied";
     for (const [index, client] of clients.entries()) {
       if (!client.fullName?.trim()) {
         throw errors.badRequest(`Client ${index + 1}: name is required`);
@@ -524,21 +559,86 @@ export async function createEntry(
           );
         }
       }
+      if (requireGeo) {
+        const geo = {
+          province:
+            blankToNull(client.province) ??
+            blankToNull(
+              typeof client.data?.province === "string"
+                ? client.data.province
+                : undefined,
+            ),
+          district:
+            blankToNull(client.district) ??
+            blankToNull(
+              typeof client.data?.district === "string"
+                ? client.data.district
+                : undefined,
+            ),
+          sector:
+            blankToNull(client.sector) ??
+            blankToNull(
+              typeof client.data?.sector === "string"
+                ? client.data.sector
+                : undefined,
+            ),
+          cell:
+            blankToNull(client.cell) ??
+            blankToNull(
+              typeof client.data?.cell === "string"
+                ? client.data.cell
+                : undefined,
+            ),
+        };
+        for (const [geoField, value] of Object.entries(geo)) {
+          if (!value) {
+            throw errors.badRequest(
+              `Client ${index + 1}: ${geoField} is required for Ezinsure applicants`,
+            );
+          }
+        }
+      }
     }
-    normalized = clients.map((c) => ({
-      fullName: c.fullName!.trim(),
-      phone: blankToNull(c.phone),
-      email: blankToNull(c.email),
-      nidNumber: blankToNull(c.nidNumber),
-      accountRef: blankToNull(c.accountRef),
-      simNumber: blankToNull(c.simNumber),
-      variantKey: null,
-      data: null,
-      gpsLat: null,
-      gpsLng: null,
-      gpsPhotoKey: null,
-      stockUnitIds: c.stockUnitIds ?? [],
-    }));
+    normalized = clients.map((c) => {
+      const province =
+        blankToNull(c.province) ??
+        blankToNull(
+          typeof c.data?.province === "string" ? c.data.province : undefined,
+        );
+      const district =
+        blankToNull(c.district) ??
+        blankToNull(
+          typeof c.data?.district === "string" ? c.data.district : undefined,
+        );
+      const sector =
+        blankToNull(c.sector) ??
+        blankToNull(
+          typeof c.data?.sector === "string" ? c.data.sector : undefined,
+        );
+      const cell =
+        blankToNull(c.cell) ??
+        blankToNull(
+          typeof c.data?.cell === "string" ? c.data.cell : undefined,
+        );
+      const geoData =
+        metric.key === "ezinsure_agents_applied"
+          ? { province, district, sector, cell }
+          : null;
+      return {
+        fullName: c.fullName!.trim(),
+        phone: blankToNull(c.phone),
+        email: blankToNull(c.email),
+        nidNumber: blankToNull(c.nidNumber),
+        accountRef: blankToNull(c.accountRef),
+        simNumber: blankToNull(c.simNumber),
+        variantKey: null,
+        data: geoData,
+        gpsLat: null,
+        gpsLng: null,
+        gpsPhotoKey: null,
+        stockUnitIds: c.stockUnitIds ?? [],
+      };
+    });
   }
 
   // Internet variants require serials from the logger's in-hand stock.
@@ -580,6 +680,32 @@ export async function createEntry(
           stockUnitIds: client.stockUnitIds,
         },
       });
+
+      if (metric.key === "ezinsure_agents_applied") {
+        const geo = (client.data ?? {}) as {
+          province?: string | null;
+          district?: string | null;
+          sector?: string | null;
+          cell?: string | null;
+        };
+        await tx.partnerApplicant.create({
+          data: {
+            partnerKey: PARTNER_EZINSURE,
+            fullName: client.fullName,
+            phone: client.phone,
+            email: client.email,
+            nidNumber: client.nidNumber,
+            province: geo.province ?? null,
+            district: geo.district ?? null,
+            sector: geo.sector ?? null,
+            cell: geo.cell ?? null,
+            month: input.month,
+            loggedByUserId: actor.id,
+            entryId: created.id,
+            clientRowId: row.id,
+          },
+        });
+      }
 
       if (
         metric.key === "internet_subscriptions" &&
@@ -715,6 +841,7 @@ export async function deleteEntry(entryId: string, actor: AuthUser) {
         note: "Stock restored after performance entry delete",
       });
     }
+    await tx.partnerApplicant.deleteMany({ where: { entryId } });
     await tx.coaPerformanceEntry.delete({ where: { id: entryId } });
   });
   return { deleted: true };
@@ -739,6 +866,7 @@ export async function deleteClientRow(clientId: string, actor: AuthUser) {
       actor,
       note: "Stock restored after client row delete",
     });
+    await tx.partnerApplicant.deleteMany({ where: { clientRowId: clientId } });
     await tx.coaEvidenceClient.delete({ where: { id: clientId } });
   });
   return { deleted: true };

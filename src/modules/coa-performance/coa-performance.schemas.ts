@@ -18,6 +18,11 @@ const clientRowBase = z.object({
   nidNumber: optionalText(20),
   accountRef: optionalText(80),
   simNumber: optionalText(40),
+  /** Ezinsure (and similar) geo fields — also stored on PartnerApplicant. */
+  province: optionalText(80),
+  district: optionalText(80),
+  sector: optionalText(80),
+  cell: optionalText(80),
   /** Logging variant (e.g. sim, hbb, obb). */
   variantKey: z.string().trim().min(1).max(40).optional(),
   /** Extra fields for schema-driven variants. */
