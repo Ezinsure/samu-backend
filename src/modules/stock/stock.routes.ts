@@ -4,7 +4,11 @@ import { authenticate } from "../../middleware/authenticate.js";
 import { requireRoles, requireWrite } from "../../middleware/rbac.js";
 import { errors } from "../../lib/errors.js";
 import {
+  cancelReturnSchema,
+  commentReturnSchema,
+  confirmReturnSchema,
   createAssignmentSchema,
+  createReturnSchema,
   createStockTypeSchema,
   customerReturnSchema,
   declineTransferSchema,
@@ -14,10 +18,12 @@ import {
   listUnitsQuerySchema,
   previewIntakeSchema,
   respondTransferSchema,
+  updateReturnSchema,
   updateStockTypeSchema,
 } from "./stock.schemas.js";
 import * as service from "./stock.service.js";
 import * as salesStock from "./stock-sales.service.js";
+import * as returns from "./stock-returns.service.js";
 import * as transfers from "./stock-transfers.service.js";
 
 export const stockRouter = Router();
@@ -257,6 +263,125 @@ stockRouter.post(
       const body = createAssignmentSchema.parse(req.body);
       const data = await transfers.createAssignment(body, req.user, meta(req));
       res.status(201).json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+stockRouter.post(
+  "/transfers/returns",
+  requireWrite,
+  writeLimiter,
+  async (req, res, next) => {
+    try {
+      if (!req.user) throw errors.unauthorized();
+      const body = createReturnSchema.parse(req.body);
+      const data = await returns.createReturn(body, req.user, meta(req));
+      res.status(201).json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+stockRouter.patch(
+  "/transfers/:id/return",
+  requireWrite,
+  writeLimiter,
+  async (req, res, next) => {
+    try {
+      if (!req.user) throw errors.unauthorized();
+      const body = updateReturnSchema.parse(req.body);
+      const data = await returns.updateReturn(
+        String(req.params.id),
+        body,
+        req.user,
+        meta(req),
+      );
+      res.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+stockRouter.post(
+  "/transfers/:id/submit",
+  requireWrite,
+  writeLimiter,
+  async (req, res, next) => {
+    try {
+      if (!req.user) throw errors.unauthorized();
+      const data = await returns.submitReturn(
+        String(req.params.id),
+        req.user,
+        meta(req),
+      );
+      res.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+stockRouter.post(
+  "/transfers/:id/confirm",
+  requireWrite,
+  writeLimiter,
+  async (req, res, next) => {
+    try {
+      if (!req.user) throw errors.unauthorized();
+      const body = confirmReturnSchema.parse(req.body ?? {});
+      const data = await returns.confirmReturn(
+        String(req.params.id),
+        body,
+        req.user,
+        meta(req),
+      );
+      res.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+stockRouter.post(
+  "/transfers/:id/comment",
+  requireWrite,
+  writeLimiter,
+  async (req, res, next) => {
+    try {
+      if (!req.user) throw errors.unauthorized();
+      const body = commentReturnSchema.parse(req.body);
+      const data = await returns.commentReturn(
+        String(req.params.id),
+        body,
+        req.user,
+        meta(req),
+      );
+      res.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+stockRouter.post(
+  "/transfers/:id/cancel",
+  requireWrite,
+  writeLimiter,
+  async (req, res, next) => {
+    try {
+      if (!req.user) throw errors.unauthorized();
+      const body = cancelReturnSchema.parse(req.body ?? {});
+      const data = await returns.cancelReturn(
+        String(req.params.id),
+        body,
+        req.user,
+        meta(req),
+      );
+      res.json({ data });
     } catch (error) {
       next(error);
     }

@@ -26,11 +26,11 @@ const HOLDER_ROLES: UserRole[] = [
   "COMMUNITY_OPPORTUNITY_ASSOCIATE",
 ];
 
-function isAdmin(actor: AuthUser) {
+export function isAdmin(actor: AuthUser) {
   return actor.role === "ADMIN";
 }
 
-function isHolderRole(role: UserRole) {
+export function isHolderRole(role: UserRole) {
   return HOLDER_ROLES.includes(role);
 }
 
@@ -38,13 +38,13 @@ function requireAdmin(actor: AuthUser) {
   if (!isAdmin(actor)) throw errors.forbidden("Only ADMIN can assign stock");
 }
 
-function requireStockAccess(actor: AuthUser) {
+export function requireStockAccess(actor: AuthUser) {
   if (!isAdmin(actor) && !isHolderRole(actor.role)) {
     throw errors.forbidden("Stock access is limited to Admin, TC, and COA");
   }
 }
 
-const transferInclude = {
+export const transferInclude = {
   toUser: { select: { id: true, name: true, email: true, role: true } },
   fromUser: { select: { id: true, name: true, email: true, role: true } },
   createdBy: { select: { id: true, name: true, email: true } },
@@ -71,7 +71,7 @@ const transferInclude = {
   },
 } satisfies Prisma.StockTransferInclude;
 
-function toPublicTransfer(
+export function toPublicTransfer(
   row: Prisma.StockTransferGetPayload<{ include: typeof transferInclude }>,
 ) {
   return {
@@ -80,6 +80,8 @@ function toPublicTransfer(
     status: row.status,
     revision: row.revision,
     confirmedRevision: row.confirmedRevision ?? undefined,
+    holderConfirmedRevision: row.holderConfirmedRevision ?? undefined,
+    officeConfirmedRevision: row.officeConfirmedRevision ?? undefined,
     reasonCode: row.reasonCode ?? undefined,
     note: row.note ?? undefined,
     fromUser: row.fromUser,
@@ -110,14 +112,22 @@ function toPublicTransfer(
       type: event.type,
       note: event.note ?? undefined,
       revision: event.revision ?? undefined,
+      payload:
+        event.payload &&
+        typeof event.payload === "object" &&
+        !Array.isArray(event.payload)
+          ? (event.payload as Record<string, unknown>)
+          : undefined,
       actor: event.actor,
       createdAt: event.createdAt.toISOString(),
     })),
     itemCount: row.items.length,
+    holderConfirmed: row.holderConfirmedRevision === row.revision,
+    officeConfirmed: row.officeConfirmedRevision === row.revision,
   };
 }
 
-async function loadTransferOrThrow(id: string) {
+export async function loadTransferOrThrow(id: string) {
   const row = await prisma.stockTransfer.findUnique({
     where: { id },
     include: transferInclude,
@@ -126,7 +136,7 @@ async function loadTransferOrThrow(id: string) {
   return row;
 }
 
-function assertCanViewTransfer(
+export function assertCanViewTransfer(
   transfer: { toUserId: string; createdByUserId: string; fromUserId: string | null },
   actor: AuthUser,
 ) {
@@ -137,7 +147,7 @@ function assertCanViewTransfer(
   throw errors.forbidden("You cannot view this transfer");
 }
 
-function summarizeTypes(
+export function summarizeTypes(
   items: Array<{ typeLabelSnapshot: string }>,
 ): string {
   const counts = new Map<string, number>();
@@ -368,7 +378,8 @@ export async function listTransfers(
 
   if (isAdmin(actor)) {
     if (query.toUserId) where.toUserId = query.toUserId;
-    if (query.mine) where.toUserId = actor.id;
+    if (query.fromUserId) where.fromUserId = query.fromUserId;
+    if (query.mine) where.OR = [{ toUserId: actor.id }, { fromUserId: actor.id }];
   } else {
     where.OR = [{ toUserId: actor.id }, { fromUserId: actor.id }];
   }

@@ -248,6 +248,7 @@ enum StockTransferKind {
 
 /// Lifecycle of a two-party stock transfer application.
 enum StockTransferStatus {
+  draft
   pending
   accepted
   partially_accepted
@@ -1158,8 +1159,12 @@ model StockTransfer {
   fromUserId         String?             @map("from_user_id")
   toUserId           String              @map("to_user_id")
   revision           Int                 @default(1)
-  /// Used by return flows (Phase 5) when both sides must agree on a revision.
+  /// Set when both sides have confirmed the same revision (return flows).
   confirmedRevision  Int?                @map("confirmed_revision")
+  /// Holder confirmation watermark for the current dual-confirm return flow.
+  holderConfirmedRevision Int?           @map("holder_confirmed_revision")
+  /// Office/admin confirmation watermark for the current dual-confirm return flow.
+  officeConfirmedRevision Int?           @map("office_confirmed_revision")
   reasonCode         String?             @map("reason_code")
   note               String?
   createdByUserId    String              @map("created_by_user_id")

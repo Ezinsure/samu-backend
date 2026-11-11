@@ -87,14 +87,84 @@ export const listTransfersQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   status: z
-    .enum(["pending", "accepted", "partially_accepted", "declined", "cancelled"])
+    .enum([
+      "draft",
+      "pending",
+      "accepted",
+      "partially_accepted",
+      "declined",
+      "cancelled",
+    ])
     .optional(),
   kind: z.enum(["assignment", "return"]).optional(),
   toUserId: z.string().trim().min(1).optional(),
+  fromUserId: z.string().trim().min(1).optional(),
   mine: z
     .enum(["true", "false"])
     .optional()
     .transform((v) => v === "true"),
+});
+
+export const returnReasonSchema = z.enum([
+  "no_sales",
+  "faulty",
+  "end_of_contract",
+  "excess_stock",
+  "other",
+]);
+
+export const createReturnSchema = z.object({
+  unitIds: z.array(z.string().trim().min(1)).min(1).max(200),
+  reasonCode: returnReasonSchema,
+  note: z.string().trim().max(2000).optional(),
+  /** When true, create as pending (submitted); otherwise draft. */
+  submit: z.boolean().optional(),
+  items: z
+    .array(
+      z.object({
+        unitId: z.string().trim().min(1),
+        condition: z.string().trim().max(80).optional(),
+        note: z.string().trim().max(500).optional(),
+      }),
+    )
+    .max(200)
+    .optional(),
+});
+
+export const updateReturnSchema = z
+  .object({
+    reasonCode: returnReasonSchema.optional(),
+    note: z.string().trim().max(2000).nullable().optional(),
+    unitIds: z.array(z.string().trim().min(1)).min(1).max(200).optional(),
+    items: z
+      .array(
+        z.object({
+          unitId: z.string().trim().min(1),
+          condition: z.string().trim().max(80).nullable().optional(),
+          decision: z
+            .enum(["pending", "accepted", "missing", "wrong", "declined"])
+            .optional(),
+          decisionNote: z.string().trim().max(500).nullable().optional(),
+        }),
+      )
+      .min(1)
+      .max(200)
+      .optional(),
+  })
+  .refine((v) => Object.values(v).some((x) => x !== undefined), {
+    message: "Provide at least one field to update",
+  });
+
+export const confirmReturnSchema = z.object({
+  note: z.string().trim().max(2000).optional(),
+});
+
+export const commentReturnSchema = z.object({
+  note: z.string().trim().min(1).max(2000),
+});
+
+export const cancelReturnSchema = z.object({
+  note: z.string().trim().max(2000).optional(),
 });
 
 export const transferItemDecisionSchema = z.enum([
@@ -154,3 +224,8 @@ export type ListAvailableUnitsQuery = z.infer<
   typeof listAvailableUnitsQuerySchema
 >;
 export type CustomerReturnInput = z.infer<typeof customerReturnSchema>;
+export type CreateReturnInput = z.infer<typeof createReturnSchema>;
+export type UpdateReturnInput = z.infer<typeof updateReturnSchema>;
+export type ConfirmReturnInput = z.infer<typeof confirmReturnSchema>;
+export type CommentReturnInput = z.infer<typeof commentReturnSchema>;
+export type CancelReturnInput = z.infer<typeof cancelReturnSchema>;

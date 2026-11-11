@@ -3,6 +3,7 @@ import { errors } from "../../lib/errors.js";
 import { writeAuditLog } from "../../lib/audit.js";
 import { prisma } from "../../lib/prisma.js";
 import type { AuthUser } from "../../types/express.js";
+import { findUnitsOnOpenReturn } from "./stock-returns.service.js";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -121,6 +122,14 @@ export async function consumeUnits(
   },
 ) {
   const units = await loadUnitsForConsume(db, input.unitIds);
+  const locked = await findUnitsOnOpenReturn(input.unitIds);
+  if (locked.length > 0) {
+    throw errors.conflict(
+      `On an open return to office: ${locked
+        .map((row) => row.unit.serial)
+        .join(", ")}`,
+    );
+  }
   if (input.allowedTypeKeys?.length) {
     const allowed = new Set(input.allowedTypeKeys);
     for (const unit of units) {
