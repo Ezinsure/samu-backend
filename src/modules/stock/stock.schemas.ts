@@ -29,10 +29,26 @@ export const updateStockTypeSchema = z
     description: z.string().trim().max(500).nullable().optional(),
     enabled: z.boolean().optional(),
     sortOrder: z.number().int().min(0).max(10_000).optional(),
+    lowStockThreshold: z.number().int().min(0).max(100_000).optional(),
   })
   .refine((v) => Object.values(v).some((x) => x !== undefined), {
     message: "Provide at least one field to update",
   });
+
+export const agingQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(3650).default(30),
+  status: z
+    .enum(["with_holder", "in_transit", "returned_by_customer"])
+    .optional(),
+});
+
+export const exportQuerySchema = z.object({
+  kind: z.enum(["units", "by_holder", "movements"]),
+  typeKey: z.string().trim().max(60).optional(),
+  holderUserId: z.string().trim().min(1).optional(),
+  status: stockUnitStatusSchema.optional(),
+  days: z.coerce.number().int().min(1).max(3650).optional(),
+});
 
 const serialSchema = z
   .string()
@@ -197,6 +213,8 @@ export type UpdateStockTypeInput = z.infer<typeof updateStockTypeSchema>;
 export type IntakeUnitsInput = z.infer<typeof intakeUnitsSchema>;
 export type PreviewIntakeInput = z.infer<typeof previewIntakeSchema>;
 export type ListUnitsQuery = z.infer<typeof listUnitsQuerySchema>;
+export type AgingQuery = z.infer<typeof agingQuerySchema>;
+export type ExportQuery = z.infer<typeof exportQuerySchema>;
 export const listAvailableUnitsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(50),

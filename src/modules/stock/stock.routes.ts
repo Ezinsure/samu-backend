@@ -4,6 +4,7 @@ import { authenticate } from "../../middleware/authenticate.js";
 import { requireRoles, requireWrite } from "../../middleware/rbac.js";
 import { errors } from "../../lib/errors.js";
 import {
+  agingQuerySchema,
   cancelReturnSchema,
   commentReturnSchema,
   confirmReturnSchema,
@@ -12,6 +13,7 @@ import {
   createStockTypeSchema,
   customerReturnSchema,
   declineTransferSchema,
+  exportQuerySchema,
   intakeUnitsSchema,
   listAvailableUnitsQuerySchema,
   listTransfersQuerySchema,
@@ -24,6 +26,7 @@ import {
 import * as service from "./stock.service.js";
 import * as salesStock from "./stock-sales.service.js";
 import * as returns from "./stock-returns.service.js";
+import * as reports from "./stock-reports.service.js";
 import * as transfers from "./stock-transfers.service.js";
 
 export const stockRouter = Router();
@@ -89,6 +92,83 @@ stockRouter.get("/holders/breakdown", adminOnly, async (req, res, next) => {
     next(error);
   }
 });
+
+stockRouter.get("/reports", adminOnly, async (req, res, next) => {
+  try {
+    if (!req.user) throw errors.unauthorized();
+    const days = Number(req.query.agingDays ?? 30);
+    const data = await reports.getReportsWorkspace(
+      req.user,
+      Number.isFinite(days) ? days : 30,
+    );
+    res.json({ data });
+  } catch (error) {
+    next(error);
+  }
+});
+
+stockRouter.get("/reports/aging", adminOnly, async (req, res, next) => {
+  try {
+    if (!req.user) throw errors.unauthorized();
+    const query = agingQuerySchema.parse(req.query);
+    const data = await reports.getAgingReport(req.user, query);
+    res.json({ data });
+  } catch (error) {
+    next(error);
+  }
+});
+
+stockRouter.get("/reports/low-stock", adminOnly, async (req, res, next) => {
+  try {
+    if (!req.user) throw errors.unauthorized();
+    const data = await reports.getLowStockReport(req.user);
+    res.json({ data });
+  } catch (error) {
+    next(error);
+  }
+});
+
+stockRouter.get("/reports/discrepancies", adminOnly, async (req, res, next) => {
+  try {
+    if (!req.user) throw errors.unauthorized();
+    const data = await reports.getDiscrepancies(req.user);
+    res.json({ data });
+  } catch (error) {
+    next(error);
+  }
+});
+
+stockRouter.get("/reports/export.csv", adminOnly, async (req, res, next) => {
+  try {
+    if (!req.user) throw errors.unauthorized();
+    const query = exportQuerySchema.parse(req.query);
+    const file = await reports.exportStockCsv(req.user, query);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${file.filename}"`,
+    );
+    res.send(file.csv);
+  } catch (error) {
+    next(error);
+  }
+});
+
+stockRouter.post(
+  "/reports/digest",
+  adminOnly,
+  requireWrite,
+  writeLimiter,
+  async (req, res, next) => {
+    try {
+      if (!req.user) throw errors.unauthorized();
+      const data = await reports.sendStockDigest(req.user, meta(req));
+      res.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 stockRouter.get("/holders", adminOnly, async (req, res, next) => {
   try {

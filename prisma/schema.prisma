@@ -1087,6 +1087,8 @@ model StockItemType {
   description String?
   /// Optional JSON schema for type-specific attributes on units.
   attributesSchema Json? @map("attributes_schema")
+  /// Warn when warehouse count for this type falls to or below this value.
+  lowStockThreshold Int @default(10) @map("low_stock_threshold")
   enabled     Boolean  @default(true)
   sortOrder   Int      @default(0) @map("sort_order")
   createdAt   DateTime @default(now()) @map("created_at")

@@ -69,6 +69,7 @@ function toPublicType(row: {
   description: string | null;
   enabled: boolean;
   sortOrder: number;
+  lowStockThreshold?: number;
   updatedAt: Date;
   _count?: { units: number };
 }) {
@@ -79,6 +80,7 @@ function toPublicType(row: {
     description: row.description ?? undefined,
     enabled: row.enabled,
     sortOrder: row.sortOrder,
+    lowStockThreshold: row.lowStockThreshold ?? 10,
     unitCount: row._count?.units ?? 0,
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -183,6 +185,7 @@ export async function updateType(
       description: input.description === undefined ? undefined : input.description,
       enabled: input.enabled,
       sortOrder: input.sortOrder,
+      lowStockThreshold: input.lowStockThreshold,
     },
     include: { _count: { select: { units: true } } },
   });
