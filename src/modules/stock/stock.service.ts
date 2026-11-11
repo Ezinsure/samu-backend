@@ -14,9 +14,24 @@ import type {
 
 type RequestMeta = { ip?: string; userAgent?: string };
 
+const HOLDER_ROLES = [
+  "TERRITORY_COORDINATOR",
+  "COMMUNITY_OPPORTUNITY_ASSOCIATE",
+] as const;
+
 function requireAdmin(actor: AuthUser) {
   if (actor.role !== "ADMIN") {
     throw errors.forbidden("Only ADMIN can manage inventory");
+  }
+}
+
+function isHolder(actor: AuthUser) {
+  return (HOLDER_ROLES as readonly string[]).includes(actor.role);
+}
+
+function requireStockAccess(actor: AuthUser) {
+  if (actor.role !== "ADMIN" && !isHolder(actor)) {
+    throw errors.forbidden("Stock access is limited to Admin, TC, and COA");
   }
 }
 
@@ -368,17 +383,22 @@ export async function intakeUnits(
 }
 
 export async function listUnits(query: ListUnitsQuery, actor: AuthUser) {
-  requireAdmin(actor);
+  requireStockAccess(actor);
 
   const where: Prisma.StockUnitWhereInput = {};
   if (query.status) where.status = query.status;
-  if (query.holderUserId) where.holderUserId = query.holderUserId;
   if (query.typeKey) where.type = { key: query.typeKey };
   if (query.search) {
     where.OR = [
       { serial: { contains: query.search, mode: "insensitive" } },
       { notes: { contains: query.search, mode: "insensitive" } },
     ];
+  }
+
+  if (actor.role === "ADMIN") {
+    if (query.holderUserId) where.holderUserId = query.holderUserId;
+  } else {
+    where.holderUserId = actor.id;
   }
 
   const skip = (query.page - 1) * query.pageSize;
@@ -406,7 +426,7 @@ export async function listUnits(query: ListUnitsQuery, actor: AuthUser) {
 }
 
 export async function getUnit(id: string, actor: AuthUser) {
-  requireAdmin(actor);
+  requireStockAccess(actor);
   const unit = await prisma.stockUnit.findUnique({
     where: { id },
     include: {
@@ -422,6 +442,9 @@ export async function getUnit(id: string, actor: AuthUser) {
     },
   });
   if (!unit) throw errors.notFound("Stock unit not found");
+  if (actor.role !== "ADMIN" && unit.holderUserId !== actor.id) {
+    throw errors.forbidden("You can only view units assigned to you");
+  }
 
   return {
     ...toPublicUnit(unit),
@@ -437,5 +460,74 @@ export async function getUnit(id: string, actor: AuthUser) {
       actor: m.actor,
       createdAt: m.createdAt.toISOString(),
     })),
+  };
+}
+
+/** Counts for the signed-in holder's My stock page. */
+export async function getMyStockOverview(actor: AuthUser) {
+  requireStockAccess(actor);
+  if (actor.role === "ADMIN") {
+    return getOverview(actor);
+  }
+
+  const grouped = await prisma.stockUnit.groupBy({
+    by: ["status"],
+    where: { holderUserId: actor.id },
+    _count: { _all: true },
+  });
+  const byStatus: Record<string, number> = {};
+  let total = 0;
+  for (const row of grouped) {
+    byStatus[row.status] = row._count._all;
+    total += row._count._all;
+  }
+
+  const byTypeRows = await prisma.stockUnit.groupBy({
+    by: ["typeId", "status"],
+    where: { holderUserId: actor.id },
+    _count: { _all: true },
+  });
+  const types = await prisma.stockItemType.findMany({
+    where: { enabled: true },
+    orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
+  });
+  const byType = types
+    .map((t) => {
+      const counts: Record<string, number> = {};
+      let typeTotal = 0;
+      for (const row of byTypeRows) {
+        if (row.typeId !== t.id) continue;
+        counts[row.status] = row._count._all;
+        typeTotal += row._count._all;
+      }
+      return {
+        type: { id: t.id, key: t.key, label: t.label },
+        total: typeTotal,
+        byStatus: counts,
+      };
+    })
+    .filter((row) => row.total > 0);
+
+  const pendingIncoming = await prisma.stockTransfer.count({
+    where: {
+      kind: "assignment",
+      status: "pending",
+      toUserId: actor.id,
+    },
+  });
+
+  return {
+    total,
+    byStatus: {
+      in_warehouse: 0,
+      in_transit: byStatus.in_transit ?? 0,
+      with_holder: byStatus.with_holder ?? 0,
+      sold: byStatus.sold ?? 0,
+      returned_by_customer: byStatus.returned_by_customer ?? 0,
+      damaged: byStatus.damaged ?? 0,
+      written_off: byStatus.written_off ?? 0,
+    },
+    byType,
+    pendingIncoming,
   };
 }

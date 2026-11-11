@@ -240,6 +240,30 @@ enum StockMovementType {
   write_off
 }
 
+/// Transfer application direction (assignment now; return-to-office in Phase 5).
+enum StockTransferKind {
+  assignment
+  return
+}
+
+/// Lifecycle of a two-party stock transfer application.
+enum StockTransferStatus {
+  pending
+  accepted
+  partially_accepted
+  declined
+  cancelled
+}
+
+/// Per-line decision on a transfer (holder flags missing/wrong items).
+enum StockTransferItemDecision {
+  pending
+  accepted
+  missing
+  wrong
+  declined
+}
+
 model User {
   id               String     @id @default(cuid())
   email            String     @unique
@@ -292,6 +316,10 @@ model User {
   coaPerformanceEntries CoaPerformanceEntry[] @relation("CoaPerformanceCoa")
   stockUnitsHeld        StockUnit[]           @relation("StockUnitHolder")
   stockMovementsActed   StockMovement[]       @relation("StockMovementActor")
+  stockTransfersFrom    StockTransfer[]       @relation("StockTransferFrom")
+  stockTransfersTo      StockTransfer[]       @relation("StockTransferTo")
+  stockTransfersCreated StockTransfer[]       @relation("StockTransferCreator")
+  stockTransferEvents   StockTransferEvent[]  @relation("StockTransferEventActor")
 
   @@index([role])
   @@index([status])
@@ -1073,9 +1101,10 @@ model StockUnit {
   createdAt    DateTime        @default(now()) @map("created_at")
   updatedAt    DateTime        @updatedAt @map("updated_at")
 
-  type     StockItemType   @relation(fields: [typeId], references: [id], onDelete: Restrict)
-  holder   User?           @relation("StockUnitHolder", fields: [holderUserId], references: [id], onDelete: SetNull)
+  type      StockItemType       @relation(fields: [typeId], references: [id], onDelete: Restrict)
+  holder    User?               @relation("StockUnitHolder", fields: [holderUserId], references: [id], onDelete: SetNull)
   movements StockMovement[]
+  transferItems StockTransferItem[]
 
   @@unique([typeId, serial])
   @@index([status])
@@ -1107,4 +1136,75 @@ model StockMovement {
   @@index([actorUserId])
   @@index([refType, refId])
   @@map("stock_movements")
+}
+
+/// Two-party application for assigning stock out of warehouse (or returning it later).
+model StockTransfer {
+  id                 String              @id @default(cuid())
+  kind               StockTransferKind
+  status             StockTransferStatus @default(pending)
+  /// Null means warehouse / company for assignments.
+  fromUserId         String?             @map("from_user_id")
+  toUserId           String              @map("to_user_id")
+  revision           Int                 @default(1)
+  /// Used by return flows (Phase 5) when both sides must agree on a revision.
+  confirmedRevision  Int?                @map("confirmed_revision")
+  reasonCode         String?             @map("reason_code")
+  note               String?
+  createdByUserId    String              @map("created_by_user_id")
+  respondedAt        DateTime?           @map("responded_at")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+
+  fromUser  User?                @relation("StockTransferFrom", fields: [fromUserId], references: [id], onDelete: SetNull)
+  toUser    User                 @relation("StockTransferTo", fields: [toUserId], references: [id], onDelete: Restrict)
+  createdBy User                 @relation("StockTransferCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  items     StockTransferItem[]
+  events    StockTransferEvent[]
+
+  @@index([kind, status])
+  @@index([toUserId, status])
+  @@index([fromUserId])
+  @@index([createdByUserId])
+  @@map("stock_transfers")
+}
+
+model StockTransferItem {
+  id              String                     @id @default(cuid())
+  transferId      String                     @map("transfer_id")
+  unitId          String                     @map("unit_id")
+  serialSnapshot  String                     @map("serial_snapshot")
+  typeKeySnapshot String                     @map("type_key_snapshot")
+  typeLabelSnapshot String                   @map("type_label_snapshot")
+  condition       String?
+  decision        StockTransferItemDecision  @default(pending)
+  decisionNote    String?                    @map("decision_note")
+  createdAt       DateTime                   @default(now()) @map("created_at")
+  updatedAt       DateTime                   @updatedAt @map("updated_at")
+
+  transfer StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  unit     StockUnit     @relation(fields: [unitId], references: [id], onDelete: Restrict)
+
+  @@unique([transferId, unitId])
+  @@index([unitId])
+  @@index([decision])
+  @@map("stock_transfer_items")
+}
+
+model StockTransferEvent {
+  id         String   @id @default(cuid())
+  transferId String   @map("transfer_id")
+  type       String
+  actorUserId String  @map("actor_user_id")
+  note       String?
+  revision   Int?
+  payload    Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  transfer StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  actor    User          @relation("StockTransferEventActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([transferId, createdAt])
+  @@index([actorUserId])
+  @@map("stock_transfer_events")
 }

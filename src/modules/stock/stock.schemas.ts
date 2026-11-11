@@ -62,8 +62,72 @@ export const listUnitsQuerySchema = z.object({
   holderUserId: z.string().trim().min(1).optional(),
 });
 
+export const createAssignmentSchema = z
+  .object({
+    toUserId: z.string().trim().min(1),
+    unitIds: z.array(z.string().trim().min(1)).min(1).max(200).optional(),
+    typeKey: z.string().trim().min(2).max(60).optional(),
+    quantity: z.number().int().min(1).max(200).optional(),
+    note: z.string().trim().max(2000).optional(),
+    reasonCode: z.string().trim().max(80).optional(),
+  })
+  .superRefine((value, ctx) => {
+    const hasUnits = Boolean(value.unitIds?.length);
+    const hasQty = Boolean(value.typeKey && value.quantity);
+    if (hasUnits === hasQty) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide either unitIds, or typeKey with quantity",
+        path: ["unitIds"],
+      });
+    }
+  });
+
+export const listTransfersQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  status: z
+    .enum(["pending", "accepted", "partially_accepted", "declined", "cancelled"])
+    .optional(),
+  kind: z.enum(["assignment", "return"]).optional(),
+  toUserId: z.string().trim().min(1).optional(),
+  mine: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
+});
+
+export const transferItemDecisionSchema = z.enum([
+  "accepted",
+  "missing",
+  "wrong",
+  "declined",
+]);
+
+export const respondTransferSchema = z.object({
+  decisions: z
+    .array(
+      z.object({
+        itemId: z.string().trim().min(1),
+        decision: transferItemDecisionSchema,
+        note: z.string().trim().max(500).optional(),
+      }),
+    )
+    .min(1)
+    .max(200),
+  note: z.string().trim().max(2000).optional(),
+});
+
+export const declineTransferSchema = z.object({
+  note: z.string().trim().max(2000).optional(),
+});
+
 export type CreateStockTypeInput = z.infer<typeof createStockTypeSchema>;
 export type UpdateStockTypeInput = z.infer<typeof updateStockTypeSchema>;
 export type IntakeUnitsInput = z.infer<typeof intakeUnitsSchema>;
 export type PreviewIntakeInput = z.infer<typeof previewIntakeSchema>;
 export type ListUnitsQuery = z.infer<typeof listUnitsQuerySchema>;
+export type CreateAssignmentInput = z.infer<typeof createAssignmentSchema>;
+export type ListTransfersQuery = z.infer<typeof listTransfersQuerySchema>;
+export type RespondTransferInput = z.infer<typeof respondTransferSchema>;
+export type DeclineTransferInput = z.infer<typeof declineTransferSchema>;

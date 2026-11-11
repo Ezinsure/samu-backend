@@ -135,3 +135,78 @@ export function coaCredentialsEmail(input: CoaCredentialsEmailInput): MailMessag
     html,
   };
 }
+
+type StockAssignmentEmailInput = {
+  to: string;
+  name: string;
+  assignedByName: string;
+  itemCount: number;
+  typeSummary: string;
+  note?: string;
+  confirmUrl: string;
+};
+
+/** Notify a TC/COA that devices were assigned and need confirmation. */
+export function stockAssignmentEmail(
+  input: StockAssignmentEmailInput,
+): MailMessage {
+  const name = escapeHtml(input.name);
+  const assignedBy = escapeHtml(input.assignedByName);
+  const typeSummary = escapeHtml(input.typeSummary);
+  const confirmUrl = escapeHtml(input.confirmUrl);
+  const note = input.note ? escapeHtml(input.note) : null;
+  const count = String(input.itemCount);
+
+  const text = [
+    `Hello ${input.name},`,
+    "",
+    `${input.assignedByName} assigned ${input.itemCount} device(s) to you in SAMU.`,
+    `Devices: ${input.typeSummary}`,
+    input.note ? `Note: ${input.note}` : null,
+    "",
+    `Confirm receipt: ${input.confirmUrl}`,
+    "",
+    "Please accept the devices that arrived, or flag any that are missing or wrong.",
+    "",
+    "— Solektra / SAMU",
+  ]
+    .filter((line) => line !== null)
+    .join("\n");
+
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#0f172a;background:#f8fafc;padding:24px">
+  <div style="background:#0b1f33;color:#fff;border-radius:12px 12px 0 0;padding:20px 24px">
+    <div style="font-size:13px;letter-spacing:0.08em;text-transform:uppercase;opacity:0.8">Solektra</div>
+    <div style="font-size:22px;font-weight:700;margin-top:4px">SAMU</div>
+    <div style="font-size:13px;opacity:0.85;margin-top:4px">Device assignment</div>
+  </div>
+  <div style="background:#ffffff;border:1px solid #e2e8f0;border-top:0;border-radius:0 0 12px 12px;padding:24px">
+    <p style="margin:0 0 12px">Hello ${name},</p>
+    <p style="margin:0 0 16px"><strong>${assignedBy}</strong> assigned <strong>${count}</strong> device(s) to you. Confirm what you received so your stock stays accurate.</p>
+    <table style="width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px">
+      <tr>
+        <td style="padding:8px 0;color:#475569;width:140px">Devices</td>
+        <td style="padding:8px 0;font-weight:600">${typeSummary}</td>
+      </tr>
+      ${
+        note
+          ? `<tr><td style="padding:8px 0;color:#475569">Note</td><td style="padding:8px 0">${note}</td></tr>`
+          : ""
+      }
+    </table>
+    <p style="margin:0 0 20px">
+      <a href="${confirmUrl}" style="background:#2563eb;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:600">Review assignment</a>
+    </p>
+    <p style="margin:0;font-size:12px;color:#64748b">
+      Or open: ${confirmUrl}<br/>
+      Accept devices that arrived, or flag any that are missing or wrong.
+    </p>
+  </div>
+</div>`;
+
+  return {
+    to: input.to,
+    subject: `SAMU: ${input.itemCount} device(s) assigned — confirm receipt`,
+    text,
+    html,
+  };
+}
