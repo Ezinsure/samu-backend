@@ -198,7 +198,12 @@ async function main() {
   const userByEmail = await seedUsers();
   await seedAdmin(userByEmail);
   await seedCoaMetrics();
-  console.log("Seed complete (admin + system settings + COA metrics).");
+  const { ensureStockItemTypes } = await import(
+    "../src/modules/stock/stock.service.js"
+  );
+  const stockTypes = await ensureStockItemTypes();
+  console.log(`  ✓ ${stockTypes} stock item types upserted`);
+  console.log("Seed complete (admin + settings + COA metrics + stock types).");
 }
 
 main()

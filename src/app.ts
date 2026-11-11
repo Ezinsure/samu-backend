@@ -33,6 +33,7 @@ import { trainingRouter } from "./modules/training/training.routes.js";
 import { visitCoverageRouter } from "./modules/visit-coverage/visit-coverage.routes.js";
 import { coaMetricsRouter } from "./modules/coa-metrics/coa-metrics.routes.js";
 import { coaPerformanceRouter } from "./modules/coa-performance/coa-performance.routes.js";
+import { stockRouter } from "./modules/stock/stock.routes.js";
 
 /**
  * Builds the Express application (no listen).
@@ -96,6 +97,7 @@ export function createApp() {
   api.use("/training", trainingRouter);
   api.use("/coa-metrics", coaMetricsRouter);
   api.use("/coa-performance", coaPerformanceRouter);
+  api.use("/stock", stockRouter);
   api.use("/visit-coverage", visitCoverageRouter);
   app.use("/api/v1", api);
 

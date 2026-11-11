@@ -215,6 +215,31 @@ enum CoaEvidenceType {
   auto_irembo
 }
 
+/// Lifecycle of a serialised SIM / router unit.
+enum StockUnitStatus {
+  in_warehouse
+  in_transit
+  with_holder
+  sold
+  returned_by_customer
+  damaged
+  written_off
+}
+
+/// Append-only stock movement kinds.
+enum StockMovementType {
+  intake
+  assign
+  accept
+  decline
+  sale
+  customer_return
+  return_to_office
+  confirm_return
+  adjust
+  write_off
+}
+
 model User {
   id               String     @id @default(cuid())
   email            String     @unique
@@ -265,6 +290,8 @@ model User {
   messagesSent          MessageOutbox[]       @relation("MessageSender")
   coaMetricOverrides    CoaMetricOverride[]   @relation("CoaMetricOverrideCoa")
   coaPerformanceEntries CoaPerformanceEntry[] @relation("CoaPerformanceCoa")
+  stockUnitsHeld        StockUnit[]           @relation("StockUnitHolder")
+  stockMovementsActed   StockMovement[]       @relation("StockMovementActor")
 
   @@index([role])
   @@index([status])
@@ -1010,4 +1037,74 @@ model CoaEvidenceFile {
   @@index([entryId])
   @@index([storageKey])
   @@map("coa_evidence_files")
+}
+
+/// Admin-extendable catalog of serialised device kinds (SIM, router, …).
+model StockItemType {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  label       String
+  description String?
+  /// Optional JSON schema for type-specific attributes on units.
+  attributesSchema Json? @map("attributes_schema")
+  enabled     Boolean  @default(true)
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  units StockUnit[]
+
+  @@index([enabled])
+  @@index([sortOrder])
+  @@map("stock_item_types")
+}
+
+/// One physical SIM or router identified by serial number.
+model StockUnit {
+  id           String          @id @default(cuid())
+  typeId       String          @map("type_id")
+  serial       String
+  status       StockUnitStatus @default(in_warehouse)
+  /// Null while in warehouse / written off.
+  holderUserId String?         @map("holder_user_id")
+  attributes   Json?
+  condition    String?
+  notes        String?
+  createdAt    DateTime        @default(now()) @map("created_at")
+  updatedAt    DateTime        @updatedAt @map("updated_at")
+
+  type     StockItemType   @relation(fields: [typeId], references: [id], onDelete: Restrict)
+  holder   User?           @relation("StockUnitHolder", fields: [holderUserId], references: [id], onDelete: SetNull)
+  movements StockMovement[]
+
+  @@unique([typeId, serial])
+  @@index([status])
+  @@index([holderUserId])
+  @@index([serial])
+  @@map("stock_units")
+}
+
+/// Append-only ledger of stock changes (source of truth for audits).
+model StockMovement {
+  id           String            @id @default(cuid())
+  unitId       String            @map("unit_id")
+  type         StockMovementType
+  fromHolderId String?           @map("from_holder_id")
+  toHolderId   String?           @map("to_holder_id")
+  reasonCode   String?           @map("reason_code")
+  note         String?
+  /// Optional link to a sale, performance entry, or transfer application.
+  refType      String?           @map("ref_type")
+  refId        String?           @map("ref_id")
+  actorUserId  String            @map("actor_user_id")
+  createdAt    DateTime          @default(now()) @map("created_at")
+
+  unit  StockUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  actor User      @relation("StockMovementActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([unitId, createdAt])
+  @@index([type])
+  @@index([actorUserId])
+  @@index([refType, refId])
+  @@map("stock_movements")
 }
