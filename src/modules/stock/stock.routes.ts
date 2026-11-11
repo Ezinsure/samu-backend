@@ -6,8 +6,10 @@ import { errors } from "../../lib/errors.js";
 import {
   createAssignmentSchema,
   createStockTypeSchema,
+  customerReturnSchema,
   declineTransferSchema,
   intakeUnitsSchema,
+  listAvailableUnitsQuerySchema,
   listTransfersQuerySchema,
   listUnitsQuerySchema,
   previewIntakeSchema,
@@ -15,6 +17,7 @@ import {
   updateStockTypeSchema,
 } from "./stock.schemas.js";
 import * as service from "./stock.service.js";
+import * as salesStock from "./stock-sales.service.js";
 import * as transfers from "./stock-transfers.service.js";
 
 export const stockRouter = Router();
@@ -159,6 +162,45 @@ stockRouter.get("/units", async (req, res, next) => {
     next(error);
   }
 });
+
+stockRouter.get("/available", async (req, res, next) => {
+  try {
+    if (!req.user) throw errors.unauthorized();
+    const query = listAvailableUnitsQuerySchema.parse(req.query);
+    const data = await salesStock.listAvailableUnits(req.user, query);
+    res.json({
+      data: data.data,
+      meta: {
+        page: data.page,
+        pageSize: data.pageSize,
+        total: data.total,
+        totalPages: data.totalPages,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+stockRouter.post(
+  "/units/:id/customer-return",
+  requireWrite,
+  writeLimiter,
+  async (req, res, next) => {
+    try {
+      if (!req.user) throw errors.unauthorized();
+      const body = customerReturnSchema.parse(req.body);
+      const data = await salesStock.customerReturnUnit(
+        { unitId: String(req.params.id), ...body },
+        req.user,
+        meta(req),
+      );
+      res.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 stockRouter.get("/units/:id", async (req, res, next) => {
   try {

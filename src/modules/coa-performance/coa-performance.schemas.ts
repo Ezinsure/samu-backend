@@ -25,6 +25,11 @@ const clientRowBase = z.object({
   gpsLat: z.number().min(-90).max(90).optional(),
   gpsLng: z.number().min(-180).max(180).optional(),
   gpsPhotoKey: z.string().trim().min(1).max(500).optional(),
+  /**
+   * Stock units consumed by this client row (Phase 4).
+   * SIM = 1× sim_4g; HBB/OBB = router_* + sim_4g.
+   */
+  stockUnitIds: z.array(z.string().trim().min(1)).max(5).optional(),
 });
 
 export const createPerformanceEntrySchema = z.object({

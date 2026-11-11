@@ -136,6 +136,7 @@ export type NormalizedClientRow = {
   gpsLat: number | null;
   gpsLng: number | null;
   gpsPhotoKey: string | null;
+  stockUnitIds: string[];
 };
 
 type RawClientInput = {
@@ -150,6 +151,7 @@ type RawClientInput = {
   gpsLat?: number;
   gpsLng?: number;
   gpsPhotoKey?: string;
+  stockUnitIds?: string[];
 };
 
 /**
@@ -267,6 +269,8 @@ export function normalizeClientForVariant(
     throw errors.badRequest(`${label}: customer name is required`);
   }
 
+  const stockUnitIds = [...new Set((input.stockUnitIds ?? []).map((id) => id.trim()).filter(Boolean))];
+
   return {
     fullName,
     phone: phone || null,
@@ -279,5 +283,6 @@ export function normalizeClientForVariant(
     gpsLat,
     gpsLng,
     gpsPhotoKey,
+    stockUnitIds,
   };
 }

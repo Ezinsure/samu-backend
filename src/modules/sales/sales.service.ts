@@ -5,6 +5,7 @@ import { logger } from "../../lib/logger.js";
 import { prisma } from "../../lib/prisma.js";
 import { isNationalReader } from "../../lib/tc-scope.js";
 import type { AuthUser } from "../../types/express.js";
+import { consumeUnits, restoreUnitsForRef } from "../stock/stock-sales.service.js";
 import type { SaleInput, SaleListQuery } from "./sales.schemas.js";
 
 export type PublicSale = {
@@ -25,6 +26,10 @@ export type PublicSale = {
   soldAt: string;
   notes?: string;
   tcName?: string;
+  simStockUnitId?: string;
+  routerStockUnitId?: string;
+  customerReturnedAt?: string;
+  customerReturnReason?: string;
 };
 
 function canWriteCoap(role: AuthUser["role"]): boolean {
@@ -58,6 +63,10 @@ function toPublic(row: Sale, tcName?: string): PublicSale {
     soldAt: row.soldAt.toISOString(),
     notes: row.notes ?? undefined,
     tcName,
+    simStockUnitId: row.simStockUnitId ?? undefined,
+    routerStockUnitId: row.routerStockUnitId ?? undefined,
+    customerReturnedAt: row.customerReturnedAt?.toISOString(),
+    customerReturnReason: row.customerReturnReason ?? undefined,
   };
 }
 
@@ -192,29 +201,58 @@ export async function createSale(
   const tcUserId = await resolveTcUserId(input, viewer);
   await assertOptionalRefs(input.leadId, input.onboardingId);
 
+  if (input.productCategory === "internet_4g" && !input.simStockUnitId) {
+    throw errors.badRequest(
+      "Select a 4G SIM from your stock for internet sales",
+    );
+  }
+
+  const unitIds = [
+    input.simStockUnitId,
+    input.routerStockUnitId,
+  ].filter((id): id is string => Boolean(id));
+
   const id = `sale-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-  const row = await prisma.sale.create({
-    data: {
-      id,
-      tcUserId,
-      serviceLine: input.serviceLine,
-      productCategory: input.productCategory,
-      productName: input.productName.trim(),
-      quantity: input.quantity,
-      amountRwf: input.amountRwf,
-      customerName: input.customerName.trim(),
-      customerPhone: input.customerPhone.trim(),
-      leadId: input.leadId ?? null,
-      onboardingId: input.onboardingId ?? null,
-      depositRwf: input.depositRwf ?? null,
-      installmentMonths: input.installmentMonths ?? null,
-      geoProvince: input.geo.province,
-      geoDistrict: input.geo.district,
-      geoSector: input.geo.sector,
-      soldAt: new Date(input.soldAt),
-      notes: input.notes?.trim() || null,
-    },
-    include: { tcUser: { select: { name: true } } },
+  const row = await prisma.$transaction(async (tx) => {
+    const created = await tx.sale.create({
+      data: {
+        id,
+        tcUserId,
+        serviceLine: input.serviceLine,
+        productCategory: input.productCategory,
+        productName: input.productName.trim(),
+        quantity: input.quantity,
+        amountRwf: input.amountRwf,
+        customerName: input.customerName.trim(),
+        customerPhone: input.customerPhone.trim(),
+        leadId: input.leadId ?? null,
+        onboardingId: input.onboardingId ?? null,
+        depositRwf: input.depositRwf ?? null,
+        installmentMonths: input.installmentMonths ?? null,
+        geoProvince: input.geo.province,
+        geoDistrict: input.geo.district,
+        geoSector: input.geo.sector,
+        soldAt: new Date(input.soldAt),
+        notes: input.notes?.trim() || null,
+        simStockUnitId: input.simStockUnitId ?? null,
+        routerStockUnitId: input.routerStockUnitId ?? null,
+      },
+      include: { tcUser: { select: { name: true } } },
+    });
+
+    if (unitIds.length > 0) {
+      await consumeUnits(tx, {
+        unitIds,
+        actor: viewer,
+        refType: "sale",
+        refId: created.id,
+        requiredHolderId: tcUserId,
+        allowedTypeKeys: ["sim_4g", "router_hbb", "router_obb"],
+        note: `Sale ${created.productName}`,
+      });
+    }
+
+    return created;
   });
 
   logger.info(
@@ -259,28 +297,66 @@ export async function updateSale(
 
   await assertOptionalRefs(input.leadId, input.onboardingId);
 
-  const row = await prisma.sale.update({
-    where: { id },
-    data: {
-      tcUserId,
-      serviceLine: input.serviceLine,
-      productCategory: input.productCategory,
-      productName: input.productName.trim(),
-      quantity: input.quantity,
-      amountRwf: input.amountRwf,
-      customerName: input.customerName.trim(),
-      customerPhone: input.customerPhone.trim(),
-      leadId: input.leadId ?? null,
-      onboardingId: input.onboardingId ?? null,
-      depositRwf: input.depositRwf ?? null,
-      installmentMonths: input.installmentMonths ?? null,
-      geoProvince: input.geo.province,
-      geoDistrict: input.geo.district,
-      geoSector: input.geo.sector,
-      soldAt: new Date(input.soldAt),
-      notes: input.notes?.trim() || null,
-    },
-    include: { tcUser: { select: { name: true } } },
+  if (input.productCategory === "internet_4g" && !input.simStockUnitId) {
+    throw errors.badRequest(
+      "Select a 4G SIM from your stock for internet sales",
+    );
+  }
+
+  const nextUnitIds = [
+    input.simStockUnitId,
+    input.routerStockUnitId,
+  ].filter((uid): uid is string => Boolean(uid));
+
+  const row = await prisma.$transaction(async (tx) => {
+    await restoreUnitsForRef(tx, {
+      refType: "sale",
+      refId: id,
+      actor: viewer,
+      note: "Stock restored before sale update",
+    });
+
+    const updated = await tx.sale.update({
+      where: { id },
+      data: {
+        tcUserId,
+        serviceLine: input.serviceLine,
+        productCategory: input.productCategory,
+        productName: input.productName.trim(),
+        quantity: input.quantity,
+        amountRwf: input.amountRwf,
+        customerName: input.customerName.trim(),
+        customerPhone: input.customerPhone.trim(),
+        leadId: input.leadId ?? null,
+        onboardingId: input.onboardingId ?? null,
+        depositRwf: input.depositRwf ?? null,
+        installmentMonths: input.installmentMonths ?? null,
+        geoProvince: input.geo.province,
+        geoDistrict: input.geo.district,
+        geoSector: input.geo.sector,
+        soldAt: new Date(input.soldAt),
+        notes: input.notes?.trim() || null,
+        simStockUnitId: input.simStockUnitId ?? null,
+        routerStockUnitId: input.routerStockUnitId ?? null,
+        customerReturnedAt: null,
+        customerReturnReason: null,
+      },
+      include: { tcUser: { select: { name: true } } },
+    });
+
+    if (nextUnitIds.length > 0) {
+      await consumeUnits(tx, {
+        unitIds: nextUnitIds,
+        actor: viewer,
+        refType: "sale",
+        refId: updated.id,
+        requiredHolderId: tcUserId,
+        allowedTypeKeys: ["sim_4g", "router_hbb", "router_obb"],
+        note: `Sale ${updated.productName}`,
+      });
+    }
+
+    return updated;
   });
 
   logger.info({ saleId: id, actorUserId: viewer.id }, "Sale updated");

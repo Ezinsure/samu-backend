@@ -673,6 +673,11 @@ model Sale {
   geoSector          String              @map("geo_sector")
   soldAt             DateTime            @map("sold_at")
   notes              String?
+  /// Optional stock units consumed by this internet sale.
+  simStockUnitId     String?             @map("sim_stock_unit_id")
+  routerStockUnitId  String?             @map("router_stock_unit_id")
+  customerReturnedAt DateTime?           @map("customer_returned_at")
+  customerReturnReason String?           @map("customer_return_reason")
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
 
@@ -687,6 +692,8 @@ model Sale {
   @@index([soldAt])
   @@index([leadId])
   @@index([onboardingId])
+  @@index([simStockUnitId])
+  @@index([routerStockUnitId])
   @@map("sales")
 }
 
@@ -1040,6 +1047,10 @@ model CoaEvidenceClient {
   gpsLng          Float?   @map("gps_lng")
   /// Optional R2 key for a GPS screenshot / map capture.
   gpsPhotoKey     String?  @map("gps_photo_key")
+  /// Stock unit ids consumed when this row was logged (serial pickers).
+  stockUnitIds    String[] @default([]) @map("stock_unit_ids")
+  customerReturnedAt DateTime? @map("customer_returned_at")
+  customerReturnReason String? @map("customer_return_reason")
   createdAt       DateTime @default(now()) @map("created_at")
 
   entry CoaPerformanceEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)

@@ -127,7 +127,30 @@ export type UpdateStockTypeInput = z.infer<typeof updateStockTypeSchema>;
 export type IntakeUnitsInput = z.infer<typeof intakeUnitsSchema>;
 export type PreviewIntakeInput = z.infer<typeof previewIntakeSchema>;
 export type ListUnitsQuery = z.infer<typeof listUnitsQuerySchema>;
+export const listAvailableUnitsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(50),
+  typeKey: z.string().trim().max(60).optional(),
+  search: z.string().trim().max(120).optional(),
+  holderUserId: z.string().trim().min(1).optional(),
+});
+
+export const customerReturnSchema = z.object({
+  reasonCode: z.enum([
+    "stopped_paying",
+    "faulty",
+    "cancelled",
+    "other",
+  ]),
+  condition: z.string().trim().max(80).optional(),
+  note: z.string().trim().max(2000).optional(),
+});
+
 export type CreateAssignmentInput = z.infer<typeof createAssignmentSchema>;
 export type ListTransfersQuery = z.infer<typeof listTransfersQuerySchema>;
 export type RespondTransferInput = z.infer<typeof respondTransferSchema>;
 export type DeclineTransferInput = z.infer<typeof declineTransferSchema>;
+export type ListAvailableUnitsQuery = z.infer<
+  typeof listAvailableUnitsQuerySchema
+>;
+export type CustomerReturnInput = z.infer<typeof customerReturnSchema>;

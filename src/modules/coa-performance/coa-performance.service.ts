@@ -14,6 +14,11 @@ import {
   type NormalizedClientRow,
 } from "../coa-metrics/coa-metric-variants.service.js";
 import {
+  assertUnitSetMatchesVariant,
+  consumeUnits,
+  restoreUnitsForRef,
+} from "../stock/stock-sales.service.js";
+import {
   CLIENT_FIELD_REQUIREMENTS,
   type CreatePerformanceEntryInput,
 } from "./coa-performance.schemas.js";
@@ -314,6 +319,9 @@ function toPublicEntry(entry: {
     gpsLat?: number | null;
     gpsLng?: number | null;
     gpsPhotoKey?: string | null;
+    stockUnitIds?: string[];
+    customerReturnedAt?: Date | null;
+    customerReturnReason?: string | null;
     createdAt: Date;
   }>;
   files?: Array<{
@@ -351,6 +359,9 @@ function toPublicEntry(entry: {
       gpsLat: c.gpsLat ?? undefined,
       gpsLng: c.gpsLng ?? undefined,
       gpsPhotoKey: c.gpsPhotoKey ?? undefined,
+      stockUnitIds: c.stockUnitIds ?? [],
+      customerReturnedAt: c.customerReturnedAt?.toISOString(),
+      customerReturnReason: c.customerReturnReason ?? undefined,
       createdAt: c.createdAt.toISOString(),
     })),
     files: (entry.files ?? []).map((f) => ({
@@ -526,31 +537,92 @@ export async function createEntry(
       gpsLat: null,
       gpsLng: null,
       gpsPhotoKey: null,
+      stockUnitIds: c.stockUnitIds ?? [],
     }));
   }
 
-  const entry = await prisma.coaPerformanceEntry.create({
-    data: {
-      metricId: metric.id,
-      coaUserId: actor.id,
-      month: input.month,
-      notes: input.notes?.trim() || null,
-      clientRows: {
-        create: normalized.map((c) => ({
-          fullName: c.fullName,
-          phone: c.phone,
-          email: c.email,
-          nidNumber: c.nidNumber,
-          accountRef: c.accountRef,
-          simNumber: c.simNumber,
-          variantKey: c.variantKey,
-          data: (c.data ?? undefined) as Prisma.InputJsonValue | undefined,
-          gpsLat: c.gpsLat,
-          gpsLng: c.gpsLng,
-          gpsPhotoKey: c.gpsPhotoKey,
-        })),
+  // Internet variants require serials from the logger's in-hand stock.
+  if (metric.key === "internet_subscriptions" && resolvedVariantKey) {
+    for (const [index, client] of normalized.entries()) {
+      if (!client.stockUnitIds.length) {
+        throw errors.badRequest(
+          `Client ${index + 1}: pick device serial(s) from your stock`,
+        );
+      }
+    }
+  }
+
+  const entryId = await prisma.$transaction(async (tx) => {
+    const created = await tx.coaPerformanceEntry.create({
+      data: {
+        metricId: metric.id,
+        coaUserId: actor.id,
+        month: input.month,
+        notes: input.notes?.trim() || null,
       },
-    },
+    });
+
+    for (const client of normalized) {
+      const row = await tx.coaEvidenceClient.create({
+        data: {
+          entryId: created.id,
+          fullName: client.fullName,
+          phone: client.phone,
+          email: client.email,
+          nidNumber: client.nidNumber,
+          accountRef: client.accountRef,
+          simNumber: client.simNumber,
+          variantKey: client.variantKey,
+          data: (client.data ?? undefined) as Prisma.InputJsonValue | undefined,
+          gpsLat: client.gpsLat,
+          gpsLng: client.gpsLng,
+          gpsPhotoKey: client.gpsPhotoKey,
+          stockUnitIds: client.stockUnitIds,
+        },
+      });
+
+      if (
+        metric.key === "internet_subscriptions" &&
+        resolvedVariantKey &&
+        client.stockUnitIds.length > 0
+      ) {
+        const units = await tx.stockUnit.findMany({
+          where: { id: { in: client.stockUnitIds } },
+          include: { type: true },
+        });
+        assertUnitSetMatchesVariant(units, resolvedVariantKey);
+        // Fill serial fields from stock when picker ids are provided.
+        const sim = units.find((u) => u.type.key === "sim_4g");
+        const router = units.find((u) => u.type.key.startsWith("router_"));
+        await tx.coaEvidenceClient.update({
+          where: { id: row.id },
+          data: {
+            simNumber: sim?.serial ?? row.simNumber,
+            data: {
+              ...((client.data as Record<string, unknown> | null) ?? {}),
+              ...(router ? { routerSerial: router.serial } : {}),
+              ...(sim && resolvedVariantKey !== "sim"
+                ? { fourGNumber: sim.serial }
+                : {}),
+            } as Prisma.InputJsonValue,
+          },
+        });
+        await consumeUnits(tx, {
+          unitIds: client.stockUnitIds,
+          actor,
+          refType: "coa_evidence_client",
+          refId: row.id,
+          requiredHolderId: actor.id,
+          note: `${metric.label} · ${resolvedVariantKey}`,
+        });
+      }
+    }
+
+    return created.id;
+  });
+
+  const entry = await prisma.coaPerformanceEntry.findUniqueOrThrow({
+    where: { id: entryId },
     include: {
       metric: {
         select: { key: true, label: true, evidenceType: true },
@@ -627,13 +699,24 @@ export async function deleteEntry(entryId: string, actor: AuthUser) {
 
   const entry = await prisma.coaPerformanceEntry.findUnique({
     where: { id: entryId },
+    include: { clientRows: { select: { id: true } } },
   });
   if (!entry) throw errors.notFound("Entry not found");
   if (entry.coaUserId !== actor.id && actor.role !== "ADMIN") {
     throw errors.forbidden();
   }
 
-  await prisma.coaPerformanceEntry.delete({ where: { id: entryId } });
+  await prisma.$transaction(async (tx) => {
+    for (const client of entry.clientRows) {
+      await restoreUnitsForRef(tx, {
+        refType: "coa_evidence_client",
+        refId: client.id,
+        actor,
+        note: "Stock restored after performance entry delete",
+      });
+    }
+    await tx.coaPerformanceEntry.delete({ where: { id: entryId } });
+  });
   return { deleted: true };
 }
 
@@ -649,7 +732,15 @@ export async function deleteClientRow(clientId: string, actor: AuthUser) {
     throw errors.forbidden();
   }
 
-  await prisma.coaEvidenceClient.delete({ where: { id: clientId } });
+  await prisma.$transaction(async (tx) => {
+    await restoreUnitsForRef(tx, {
+      refType: "coa_evidence_client",
+      refId: row.id,
+      actor,
+      note: "Stock restored after client row delete",
+    });
+    await tx.coaEvidenceClient.delete({ where: { id: clientId } });
+  });
   return { deleted: true };
 }
 
