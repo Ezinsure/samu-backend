@@ -186,6 +186,50 @@ coaPerformanceRouter.post(
 );
 
 coaPerformanceRouter.post(
+  "/gps-photos",
+  writeLimiter,
+  requireWrite,
+  requireRoles(...ACTORS),
+  upload.single("file"),
+  async (req, res, next) => {
+    try {
+      if (!req.user) throw errors.unauthorized();
+      const file = req.file;
+      if (!file) throw errors.badRequest("file is required");
+      const data = await service.uploadGpsPhoto(
+        {
+          buffer: file.buffer,
+          originalname: file.originalname,
+          mimetype: file.mimetype,
+          size: file.size,
+        },
+        req.user,
+      );
+      res.status(201).json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+coaPerformanceRouter.get(
+  "/clients/:id/gps-photo",
+  requireRoles(...FILE_VIEWERS),
+  async (req, res, next) => {
+    try {
+      if (!req.user) throw errors.unauthorized();
+      const data = await service.getGpsPhotoViewUrl(
+        String(req.params.id),
+        req.user,
+      );
+      res.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+coaPerformanceRouter.post(
   "/evidence-files",
   writeLimiter,
   requireWrite,

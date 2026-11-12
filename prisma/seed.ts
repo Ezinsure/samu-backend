@@ -61,6 +61,12 @@ async function seedCoaMetrics(): Promise<void> {
       `  ✓ ${seed.key} (target ${seed.monthlyTarget}, ${seed.enabled ? "enabled" : "disabled"})`,
     );
   }
+
+  const { ensureCoaMetricVariants } = await import(
+    "../src/modules/coa-metrics/coa-metric-variants.service.js"
+  );
+  const variants = await ensureCoaMetricVariants();
+  console.log(`  ✓ ${variants} metric variants upserted`);
 }
 
 async function seedUsers(
@@ -192,7 +198,12 @@ async function main() {
   const userByEmail = await seedUsers();
   await seedAdmin(userByEmail);
   await seedCoaMetrics();
-  console.log("Seed complete (admin + system settings + COA metrics).");
+  const { ensureStockItemTypes } = await import(
+    "../src/modules/stock/stock.service.js"
+  );
+  const stockTypes = await ensureStockItemTypes();
+  console.log(`  ✓ ${stockTypes} stock item types upserted`);
+  console.log("Seed complete (admin + settings + COA metrics + stock types).");
 }
 
 main()

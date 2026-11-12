@@ -215,6 +215,56 @@ enum CoaEvidenceType {
   auto_irembo
 }
 
+/// Lifecycle of a serialised SIM / router unit.
+enum StockUnitStatus {
+  in_warehouse
+  in_transit
+  with_holder
+  sold
+  returned_by_customer
+  damaged
+  written_off
+}
+
+/// Append-only stock movement kinds.
+enum StockMovementType {
+  intake
+  assign
+  accept
+  decline
+  sale
+  customer_return
+  return_to_office
+  confirm_return
+  adjust
+  write_off
+}
+
+/// Transfer application direction (assignment now; return-to-office in Phase 5).
+enum StockTransferKind {
+  assignment
+  return
+}
+
+/// Lifecycle of a two-party stock transfer application.
+enum StockTransferStatus {
+  draft
+  pending
+  accepted
+  partially_accepted
+  declined
+  cancelled
+}
+
+/// Per-line decision on a transfer (holder flags missing/wrong items).
+enum StockTransferItemDecision {
+  pending
+  accepted
+  missing
+  wrong
+  declined
+}
+
 model User {
   id               String     @id @default(cuid())
   email            String     @unique
@@ -265,6 +315,14 @@ model User {
   messagesSent          MessageOutbox[]       @relation("MessageSender")
   coaMetricOverrides    CoaMetricOverride[]   @relation("CoaMetricOverrideCoa")
   coaPerformanceEntries CoaPerformanceEntry[] @relation("CoaPerformanceCoa")
+  stockUnitsHeld        StockUnit[]           @relation("StockUnitHolder")
+  stockMovementsActed   StockMovement[]       @relation("StockMovementActor")
+  stockTransfersFrom    StockTransfer[]       @relation("StockTransferFrom")
+  stockTransfersTo      StockTransfer[]       @relation("StockTransferTo")
+  stockTransfersCreated StockTransfer[]       @relation("StockTransferCreator")
+  stockTransferEvents   StockTransferEvent[]  @relation("StockTransferEventActor")
+  partnerApplicantsLogged PartnerApplicant[]  @relation("PartnerApplicantLogger")
+  partnerVerificationRuns PartnerVerificationRun[] @relation("PartnerVerificationRunActor")
 
   @@index([role])
   @@index([status])
@@ -618,6 +676,11 @@ model Sale {
   geoSector          String              @map("geo_sector")
   soldAt             DateTime            @map("sold_at")
   notes              String?
+  /// Optional stock units consumed by this internet sale.
+  simStockUnitId     String?             @map("sim_stock_unit_id")
+  routerStockUnitId  String?             @map("router_stock_unit_id")
+  customerReturnedAt DateTime?           @map("customer_returned_at")
+  customerReturnReason String?           @map("customer_return_reason")
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
 
@@ -632,6 +695,8 @@ model Sale {
   @@index([soldAt])
   @@index([leadId])
   @@index([onboardingId])
+  @@index([simStockUnitId])
+  @@index([routerStockUnitId])
   @@map("sales")
 }
 
@@ -895,10 +960,33 @@ model CoaMetric {
 
   overrides CoaMetricOverride[]
   entries   CoaPerformanceEntry[]
+  variants  CoaMetricVariant[]
 
   @@index([enabled])
   @@index([sortOrder])
   @@map("coa_metrics")
+}
+
+/// Optional logging variants for a metric (e.g. SIM vs HBB vs OBB internet).
+/// `fieldSchema` is a JSON array of field definitions used by FE + BE validation.
+model CoaMetricVariant {
+  id          String   @id @default(cuid())
+  metricId    String   @map("metric_id")
+  key         String
+  label       String
+  description String?
+  fieldSchema Json     @map("field_schema")
+  enabled     Boolean  @default(true)
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  metric CoaMetric @relation(fields: [metricId], references: [id], onDelete: Cascade)
+
+  @@unique([metricId, key])
+  @@index([metricId, sortOrder])
+  @@index([enabled])
+  @@map("coa_metric_variants")
 }
 
 /// Reserved for later per-COA target/enabled overrides (no UI in Phase 1–5).
@@ -935,6 +1023,7 @@ model CoaPerformanceEntry {
   coa         User                @relation("CoaPerformanceCoa", fields: [coaUserId], references: [id], onDelete: Cascade)
   clientRows  CoaEvidenceClient[]
   files       CoaEvidenceFile[]
+  partnerApplicants PartnerApplicant[]
 
   @@index([coaUserId, month])
   @@index([metricId, month])
@@ -954,12 +1043,25 @@ model CoaEvidenceClient {
   accountRef      String?  @map("account_ref")
   /// 4G SIM number for internet subscriptions.
   simNumber       String?  @map("sim_number")
+  /// Logging variant key (e.g. sim, hbb, obb). Null = legacy SIM-style row.
+  variantKey      String?  @map("variant_key")
+  /// Extra variant fields (router serial, speed, agent name, etc.).
+  data            Json?
+  gpsLat          Float?   @map("gps_lat")
+  gpsLng          Float?   @map("gps_lng")
+  /// Optional R2 key for a GPS screenshot / map capture.
+  gpsPhotoKey     String?  @map("gps_photo_key")
+  /// Stock unit ids consumed when this row was logged (serial pickers).
+  stockUnitIds    String[] @default([]) @map("stock_unit_ids")
+  customerReturnedAt DateTime? @map("customer_returned_at")
+  customerReturnReason String? @map("customer_return_reason")
   createdAt       DateTime @default(now()) @map("created_at")
 
   entry CoaPerformanceEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
 
   @@index([entryId])
   @@index([phone])
+  @@index([variantKey])
   @@map("coa_evidence_clients")
 }
 
@@ -978,4 +1080,239 @@ model CoaEvidenceFile {
   @@index([entryId])
   @@index([storageKey])
   @@map("coa_evidence_files")
+}
+
+/// Admin-extendable catalog of serialised device kinds (SIM, router, …).
+model StockItemType {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  label       String
+  description String?
+  /// Optional JSON schema for type-specific attributes on units.
+  attributesSchema Json? @map("attributes_schema")
+  /// Warn when warehouse count for this type falls to or below this value.
+  lowStockThreshold Int @default(10) @map("low_stock_threshold")
+  enabled     Boolean  @default(true)
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  units StockUnit[]
+
+  @@index([enabled])
+  @@index([sortOrder])
+  @@map("stock_item_types")
+}
+
+/// One physical SIM or router identified by serial number.
+model StockUnit {
+  id           String          @id @default(cuid())
+  typeId       String          @map("type_id")
+  serial       String
+  status       StockUnitStatus @default(in_warehouse)
+  /// Null while in warehouse / written off.
+  holderUserId String?         @map("holder_user_id")
+  attributes   Json?
+  condition    String?
+  notes        String?
+  createdAt    DateTime        @default(now()) @map("created_at")
+  updatedAt    DateTime        @updatedAt @map("updated_at")
+
+  type      StockItemType       @relation(fields: [typeId], references: [id], onDelete: Restrict)
+  holder    User?               @relation("StockUnitHolder", fields: [holderUserId], references: [id], onDelete: SetNull)
+  movements StockMovement[]
+  transferItems StockTransferItem[]
+
+  @@unique([typeId, serial])
+  @@index([status])
+  @@index([holderUserId])
+  @@index([serial])
+  @@map("stock_units")
+}
+
+/// Append-only ledger of stock changes (source of truth for audits).
+model StockMovement {
+  id           String            @id @default(cuid())
+  unitId       String            @map("unit_id")
+  type         StockMovementType
+  fromHolderId String?           @map("from_holder_id")
+  toHolderId   String?           @map("to_holder_id")
+  reasonCode   String?           @map("reason_code")
+  note         String?
+  /// Optional link to a sale, performance entry, or transfer application.
+  refType      String?           @map("ref_type")
+  refId        String?           @map("ref_id")
+  actorUserId  String            @map("actor_user_id")
+  createdAt    DateTime          @default(now()) @map("created_at")
+
+  unit  StockUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  actor User      @relation("StockMovementActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([unitId, createdAt])
+  @@index([type])
+  @@index([actorUserId])
+  @@index([refType, refId])
+  @@map("stock_movements")
+}
+
+/// Two-party application for assigning stock out of warehouse (or returning it later).
+model StockTransfer {
+  id                 String              @id @default(cuid())
+  kind               StockTransferKind
+  status             StockTransferStatus @default(pending)
+  /// Null means warehouse / company for assignments.
+  fromUserId         String?             @map("from_user_id")
+  toUserId           String              @map("to_user_id")
+  revision           Int                 @default(1)
+  /// Set when both sides have confirmed the same revision (return flows).
+  confirmedRevision  Int?                @map("confirmed_revision")
+  /// Holder confirmation watermark for the current dual-confirm return flow.
+  holderConfirmedRevision Int?           @map("holder_confirmed_revision")
+  /// Office/admin confirmation watermark for the current dual-confirm return flow.
+  officeConfirmedRevision Int?           @map("office_confirmed_revision")
+  reasonCode         String?             @map("reason_code")
+  note               String?
+  createdByUserId    String              @map("created_by_user_id")
+  respondedAt        DateTime?           @map("responded_at")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+
+  fromUser  User?                @relation("StockTransferFrom", fields: [fromUserId], references: [id], onDelete: SetNull)
+  toUser    User                 @relation("StockTransferTo", fields: [toUserId], references: [id], onDelete: Restrict)
+  createdBy User                 @relation("StockTransferCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  items     StockTransferItem[]
+  events    StockTransferEvent[]
+
+  @@index([kind, status])
+  @@index([toUserId, status])
+  @@index([fromUserId])
+  @@index([createdByUserId])
+  @@map("stock_transfers")
+}
+
+model StockTransferItem {
+  id              String                     @id @default(cuid())
+  transferId      String                     @map("transfer_id")
+  unitId          String                     @map("unit_id")
+  serialSnapshot  String                     @map("serial_snapshot")
+  typeKeySnapshot String                     @map("type_key_snapshot")
+  typeLabelSnapshot String                   @map("type_label_snapshot")
+  condition       String?
+  decision        StockTransferItemDecision  @default(pending)
+  decisionNote    String?                    @map("decision_note")
+  createdAt       DateTime                   @default(now()) @map("created_at")
+  updatedAt       DateTime                   @updatedAt @map("updated_at")
+
+  transfer StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  unit     StockUnit     @relation(fields: [unitId], references: [id], onDelete: Restrict)
+
+  @@unique([transferId, unitId])
+  @@index([unitId])
+  @@index([decision])
+  @@map("stock_transfer_items")
+}
+
+model StockTransferEvent {
+  id         String   @id @default(cuid())
+  transferId String   @map("transfer_id")
+  type       String
+  actorUserId String  @map("actor_user_id")
+  note       String?
+  revision   Int?
+  payload    Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  transfer StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  actor    User          @relation("StockTransferEventActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([transferId, createdAt])
+  @@index([actorUserId])
+  @@map("stock_transfer_events")
+}
+
+/// Partner verification lifecycle for logged applicants (Ezinsure Phase 7+).
+enum PartnerVerificationStatus {
+  unverified
+  verified
+  not_found
+  error
+}
+
+/// Applicants logged against partner programs (e.g. Ezinsure agents applied).
+model PartnerApplicant {
+  id                 String                    @id @default(cuid())
+  partnerKey         String                    @map("partner_key")
+  fullName           String                    @map("full_name")
+  phone              String?
+  email              String?
+  nidNumber          String?                   @map("nid_number")
+  province           String?
+  district           String?
+  sector             String?
+  cell               String?
+  /// Calendar month key (YYYY-MM), denormalized from the performance entry.
+  month              String
+  loggedByUserId     String                    @map("logged_by_user_id")
+  entryId            String?                   @map("entry_id")
+  /// Link back to evidence client row (unique for backfill / delete sync).
+  clientRowId        String?                   @unique @map("client_row_id")
+  verificationStatus PartnerVerificationStatus @default(unverified) @map("verification_status")
+  externalRef        String?                   @map("external_ref")
+  lastCheckPayload   Json?                     @map("last_check_payload")
+  verifiedAt         DateTime?                 @map("verified_at")
+  createdAt          DateTime                  @default(now()) @map("created_at")
+  updatedAt          DateTime                  @updatedAt @map("updated_at")
+
+  loggedBy User                 @relation("PartnerApplicantLogger", fields: [loggedByUserId], references: [id], onDelete: Cascade)
+  entry    CoaPerformanceEntry? @relation(fields: [entryId], references: [id], onDelete: SetNull)
+
+  @@index([partnerKey, month])
+  @@index([loggedByUserId, month])
+  @@index([verificationStatus])
+  @@index([entryId])
+  @@index([partnerKey, verificationStatus])
+  @@map("partner_applicants")
+}
+
+enum PartnerVerificationRunStatus {
+  pending
+  running
+  completed
+  failed
+}
+
+enum PartnerVerificationRunScope {
+  selected
+  unverified_all
+}
+
+/// Admin-triggered batch verification against a partner API (Phase 8).
+model PartnerVerificationRun {
+  id              String                        @id @default(cuid())
+  partnerKey      String                        @map("partner_key")
+  triggeredByUserId String                      @map("triggered_by_user_id")
+  scope           PartnerVerificationRunScope
+  status          PartnerVerificationRunStatus  @default(pending)
+  /// Applicant ids included in this run (snapshot at start).
+  applicantIds    String[]                      @default([]) @map("applicant_ids")
+  month           String?
+  totalCount      Int                           @default(0) @map("total_count")
+  processedCount  Int                           @default(0) @map("processed_count")
+  verifiedCount   Int                           @default(0) @map("verified_count")
+  notFoundCount   Int                           @default(0) @map("not_found_count")
+  errorCount      Int                           @default(0) @map("error_count")
+  skippedCount    Int                           @default(0) @map("skipped_count")
+  adapter         String                        @default("mock")
+  lastError       String?                       @map("last_error")
+  startedAt       DateTime?                     @map("started_at")
+  finishedAt      DateTime?                     @map("finished_at")
+  createdAt       DateTime                      @default(now()) @map("created_at")
+  updatedAt       DateTime                      @updatedAt @map("updated_at")
+
+  triggeredBy User @relation("PartnerVerificationRunActor", fields: [triggeredByUserId], references: [id], onDelete: Restrict)
+
+  @@index([partnerKey, createdAt])
+  @@index([status])
+  @@index([triggeredByUserId])
+  @@map("partner_verification_runs")
 }

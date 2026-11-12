@@ -30,6 +30,9 @@ export const saleInputSchema = z.object({
   notes: z.string().trim().max(2000).optional(),
   /** Required for Admin/Ops create; ignored for TC (forced to self). */
   tcUserId: z.string().min(1).optional(),
+  /** Stock serials for internet_4g sales (Phase 4). */
+  simStockUnitId: z.string().trim().min(1).optional(),
+  routerStockUnitId: z.string().trim().min(1).optional(),
 });
 
 export const saleListQuerySchema = z.object({

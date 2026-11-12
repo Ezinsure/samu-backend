@@ -10,7 +10,7 @@ const optionalText = (max: number) =>
     .optional();
 
 const clientRowBase = z.object({
-  fullName: z.string().trim().min(2).max(120),
+  fullName: z.string().trim().min(2).max(120).optional(),
   phone: optionalText(32),
   email: z
     .union([z.string().trim().email().max(320), z.literal("")])
@@ -18,12 +18,31 @@ const clientRowBase = z.object({
   nidNumber: optionalText(20),
   accountRef: optionalText(80),
   simNumber: optionalText(40),
+  /** Ezinsure (and similar) geo fields — also stored on PartnerApplicant. */
+  province: optionalText(80),
+  district: optionalText(80),
+  sector: optionalText(80),
+  cell: optionalText(80),
+  /** Logging variant (e.g. sim, hbb, obb). */
+  variantKey: z.string().trim().min(1).max(40).optional(),
+  /** Extra fields for schema-driven variants. */
+  data: z.record(z.string(), z.unknown()).optional(),
+  gpsLat: z.number().min(-90).max(90).optional(),
+  gpsLng: z.number().min(-180).max(180).optional(),
+  gpsPhotoKey: z.string().trim().min(1).max(500).optional(),
+  /**
+   * Stock units consumed by this client row (Phase 4).
+   * SIM = 1× sim_4g; HBB/OBB = router_* + sim_4g.
+   */
+  stockUnitIds: z.array(z.string().trim().min(1)).max(5).optional(),
 });
 
 export const createPerformanceEntrySchema = z.object({
   metricKey: z.string().trim().min(2).max(80),
   month: monthSchema,
   notes: z.string().trim().max(2000).optional(),
+  /** Preferred when the metric has variants. */
+  variantKey: z.string().trim().min(1).max(40).optional(),
   clients: z.array(clientRowBase).max(50).optional(),
 });
 
@@ -31,7 +50,7 @@ export type CreatePerformanceEntryInput = z.infer<
   typeof createPerformanceEntrySchema
 >;
 
-/** Per-metric required client fields. */
+/** Per-metric required client fields for metrics without variants. */
 export const CLIENT_FIELD_REQUIREMENTS: Record<
   string,
   Array<"phone" | "email" | "nidNumber" | "accountRef" | "simNumber">

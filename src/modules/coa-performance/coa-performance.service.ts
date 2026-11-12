@@ -1,15 +1,32 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { errors } from "../../lib/errors.js";
 import {
   getSignedObjectUrl,
   uploadCoaEvidenceFile,
+  uploadObject,
 } from "../../lib/storage.js";
 import type { AuthUser } from "../../types/express.js";
 import { listMetrics } from "../coa-metrics/coa-metrics.service.js";
 import {
+  getVariant,
+  normalizeClientForVariant,
+  type NormalizedClientRow,
+} from "../coa-metrics/coa-metric-variants.service.js";
+import {
+  assertUnitSetMatchesVariant,
+  consumeUnits,
+  restoreUnitsForRef,
+} from "../stock/stock-sales.service.js";
+import {
   CLIENT_FIELD_REQUIREMENTS,
   type CreatePerformanceEntryInput,
 } from "./coa-performance.schemas.js";
+import { PARTNER_EZINSURE } from "../partners/partners.schemas.js";
+import {
+  countLoggedApplicants,
+  countVerifiedApplicants,
+} from "../partners/partners.service.js";
 
 const ALLOWED_EVIDENCE_TYPES = new Set([
   "application/pdf",
@@ -84,14 +101,35 @@ async function progressForCoa(
     },
   });
 
+  const ezinsureLogged =
+    enabled.some((m) => m.key === "ezinsure_agents_applied")
+      ? await countLoggedApplicants({
+          partnerKey: PARTNER_EZINSURE,
+          loggedByUserId: coaUserId,
+          month: period,
+        })
+      : 0;
+  const ezinsureVerified =
+    enabled.some((m) => m.key === "ezinsure_agents_applied")
+      ? await countVerifiedApplicants({
+          partnerKey: PARTNER_EZINSURE,
+          loggedByUserId: coaUserId,
+          month: period,
+        })
+      : 0;
+
   return enabled.map((metric) => {
     const totals = totalsByMetric.get(metric.id) ?? {
       clients: 0,
       files: 0,
     };
     let actual = 0;
+    let verified: number | null = null;
     if (metric.evidenceType === "auto_irembo") {
       actual = iremboCount;
+    } else if (metric.key === "ezinsure_agents_applied") {
+      actual = ezinsureLogged;
+      verified = ezinsureVerified;
     } else if (metric.evidenceType === "client_rows") {
       actual = totals.clients;
     } else if (metric.evidenceType === "file_upload") {
@@ -101,6 +139,7 @@ async function progressForCoa(
     return {
       metric,
       actual,
+      verified,
       target: metric.monthlyTarget,
       remaining: Math.max(0, metric.monthlyTarget - actual),
       percent:
@@ -198,7 +237,11 @@ export function adminReportToCsv(
     "metricsMet",
     "metricsTotal",
     "overallPercent",
-    ...metricKeys.flatMap((key) => [`${key}_actual`, `${key}_target`]),
+    ...metricKeys.flatMap((key) =>
+      key === "ezinsure_agents_applied"
+        ? [`${key}_logged`, `${key}_verified`, `${key}_target`]
+        : [`${key}_actual`, `${key}_target`],
+    ),
   ].join(",");
 
   const escape = (value: string | number | undefined) => {
@@ -211,6 +254,9 @@ export function adminReportToCsv(
     const byKey = new Map(row.progress.map((p) => [p.metric.key, p]));
     const metricCols = metricKeys.flatMap((key) => {
       const p = byKey.get(key);
+      if (key === "ezinsure_agents_applied") {
+        return [p?.actual ?? 0, p?.verified ?? 0, p?.target ?? 0];
+      }
       return [p?.actual ?? 0, p?.target ?? 0];
     });
     return [
@@ -302,6 +348,14 @@ function toPublicEntry(entry: {
     nidNumber: string | null;
     accountRef: string | null;
     simNumber: string | null;
+    variantKey?: string | null;
+    data?: Prisma.JsonValue | null;
+    gpsLat?: number | null;
+    gpsLng?: number | null;
+    gpsPhotoKey?: string | null;
+    stockUnitIds?: string[];
+    customerReturnedAt?: Date | null;
+    customerReturnReason?: string | null;
     createdAt: Date;
   }>;
   files?: Array<{
@@ -331,6 +385,17 @@ function toPublicEntry(entry: {
       nidNumber: c.nidNumber ?? undefined,
       accountRef: c.accountRef ?? undefined,
       simNumber: c.simNumber ?? undefined,
+      variantKey: c.variantKey ?? undefined,
+      data:
+        c.data && typeof c.data === "object" && !Array.isArray(c.data)
+          ? (c.data as Record<string, unknown>)
+          : undefined,
+      gpsLat: c.gpsLat ?? undefined,
+      gpsLng: c.gpsLng ?? undefined,
+      gpsPhotoKey: c.gpsPhotoKey ?? undefined,
+      stockUnitIds: c.stockUnitIds ?? [],
+      customerReturnedAt: c.customerReturnedAt?.toISOString(),
+      customerReturnReason: c.customerReturnReason ?? undefined,
       createdAt: c.createdAt.toISOString(),
     })),
     files: (entry.files ?? []).map((f) => ({
@@ -421,6 +486,12 @@ export async function createEntry(
 
   const metric = await prisma.coaMetric.findUnique({
     where: { key: input.metricKey },
+    include: {
+      variants: {
+        where: { enabled: true },
+        orderBy: { sortOrder: "asc" },
+      },
+    },
   });
   if (!metric || !metric.enabled) {
     throw errors.badRequest("Metric is unavailable");
@@ -444,35 +515,240 @@ export async function createEntry(
     throw errors.badRequest("Add at least one client row");
   }
 
-  const required = CLIENT_FIELD_REQUIREMENTS[metric.key] ?? ["phone"];
-  for (const [index, client] of clients.entries()) {
-    for (const field of required) {
-      const value = client[field];
-      if (!value || !String(value).trim()) {
+  const hasVariants = metric.variants.length > 0;
+  const resolvedVariantKey =
+    input.variantKey?.trim() ||
+    clients.find((c) => c.variantKey)?.variantKey?.trim() ||
+    (hasVariants ? metric.variants[0]?.key : undefined);
+
+  if (hasVariants && !resolvedVariantKey) {
+    throw errors.badRequest("Choose an internet type (SIM, HBB, or OBB)");
+  }
+
+  let normalized: NormalizedClientRow[] = [];
+
+  if (hasVariants && resolvedVariantKey) {
+    const variant = await getVariant(metric.key, resolvedVariantKey);
+    normalized = clients.map((client, index) =>
+      normalizeClientForVariant(
+        {
+          ...client,
+          fullName: client.fullName,
+          data: client.data,
+          gpsLat: client.gpsLat,
+          gpsLng: client.gpsLng,
+          gpsPhotoKey: client.gpsPhotoKey,
+        },
+        variant.fieldSchema,
+        variant.key,
+        index,
+      ),
+    );
+  } else {
+    const required = CLIENT_FIELD_REQUIREMENTS[metric.key] ?? ["phone"];
+    const requireGeo = metric.key === "ezinsure_agents_applied";
+    for (const [index, client] of clients.entries()) {
+      if (!client.fullName?.trim()) {
+        throw errors.badRequest(`Client ${index + 1}: name is required`);
+      }
+      for (const field of required) {
+        const value = client[field];
+        if (!value || !String(value).trim()) {
+          throw errors.badRequest(
+            `Client ${index + 1}: ${field} is required for this metric`,
+          );
+        }
+      }
+      if (requireGeo) {
+        const geo = {
+          province:
+            blankToNull(client.province) ??
+            blankToNull(
+              typeof client.data?.province === "string"
+                ? client.data.province
+                : undefined,
+            ),
+          district:
+            blankToNull(client.district) ??
+            blankToNull(
+              typeof client.data?.district === "string"
+                ? client.data.district
+                : undefined,
+            ),
+          sector:
+            blankToNull(client.sector) ??
+            blankToNull(
+              typeof client.data?.sector === "string"
+                ? client.data.sector
+                : undefined,
+            ),
+          cell:
+            blankToNull(client.cell) ??
+            blankToNull(
+              typeof client.data?.cell === "string"
+                ? client.data.cell
+                : undefined,
+            ),
+        };
+        for (const [geoField, value] of Object.entries(geo)) {
+          if (!value) {
+            throw errors.badRequest(
+              `Client ${index + 1}: ${geoField} is required for Ezinsure applicants`,
+            );
+          }
+        }
+      }
+    }
+    normalized = clients.map((c) => {
+      const province =
+        blankToNull(c.province) ??
+        blankToNull(
+          typeof c.data?.province === "string" ? c.data.province : undefined,
+        );
+      const district =
+        blankToNull(c.district) ??
+        blankToNull(
+          typeof c.data?.district === "string" ? c.data.district : undefined,
+        );
+      const sector =
+        blankToNull(c.sector) ??
+        blankToNull(
+          typeof c.data?.sector === "string" ? c.data.sector : undefined,
+        );
+      const cell =
+        blankToNull(c.cell) ??
+        blankToNull(
+          typeof c.data?.cell === "string" ? c.data.cell : undefined,
+        );
+      const geoData =
+        metric.key === "ezinsure_agents_applied"
+          ? { province, district, sector, cell }
+          : null;
+      return {
+        fullName: c.fullName!.trim(),
+        phone: blankToNull(c.phone),
+        email: blankToNull(c.email),
+        nidNumber: blankToNull(c.nidNumber),
+        accountRef: blankToNull(c.accountRef),
+        simNumber: blankToNull(c.simNumber),
+        variantKey: null,
+        data: geoData,
+        gpsLat: null,
+        gpsLng: null,
+        gpsPhotoKey: null,
+        stockUnitIds: c.stockUnitIds ?? [],
+      };
+    });
+  }
+
+  // Internet variants require serials from the logger's in-hand stock.
+  if (metric.key === "internet_subscriptions" && resolvedVariantKey) {
+    for (const [index, client] of normalized.entries()) {
+      if (!client.stockUnitIds.length) {
         throw errors.badRequest(
-          `Client ${index + 1}: ${field} is required for this metric`,
+          `Client ${index + 1}: pick device serial(s) from your stock`,
         );
       }
     }
   }
 
-  const entry = await prisma.coaPerformanceEntry.create({
-    data: {
-      metricId: metric.id,
-      coaUserId: actor.id,
-      month: input.month,
-      notes: input.notes?.trim() || null,
-      clientRows: {
-        create: clients.map((c) => ({
-          fullName: c.fullName.trim(),
-          phone: blankToNull(c.phone),
-          email: blankToNull(c.email),
-          nidNumber: blankToNull(c.nidNumber),
-          accountRef: blankToNull(c.accountRef),
-          simNumber: blankToNull(c.simNumber),
-        })),
+  const entryId = await prisma.$transaction(async (tx) => {
+    const created = await tx.coaPerformanceEntry.create({
+      data: {
+        metricId: metric.id,
+        coaUserId: actor.id,
+        month: input.month,
+        notes: input.notes?.trim() || null,
       },
-    },
+    });
+
+    for (const client of normalized) {
+      const row = await tx.coaEvidenceClient.create({
+        data: {
+          entryId: created.id,
+          fullName: client.fullName,
+          phone: client.phone,
+          email: client.email,
+          nidNumber: client.nidNumber,
+          accountRef: client.accountRef,
+          simNumber: client.simNumber,
+          variantKey: client.variantKey,
+          data: (client.data ?? undefined) as Prisma.InputJsonValue | undefined,
+          gpsLat: client.gpsLat,
+          gpsLng: client.gpsLng,
+          gpsPhotoKey: client.gpsPhotoKey,
+          stockUnitIds: client.stockUnitIds,
+        },
+      });
+
+      if (metric.key === "ezinsure_agents_applied") {
+        const geo = (client.data ?? {}) as {
+          province?: string | null;
+          district?: string | null;
+          sector?: string | null;
+          cell?: string | null;
+        };
+        await tx.partnerApplicant.create({
+          data: {
+            partnerKey: PARTNER_EZINSURE,
+            fullName: client.fullName,
+            phone: client.phone,
+            email: client.email,
+            nidNumber: client.nidNumber,
+            province: geo.province ?? null,
+            district: geo.district ?? null,
+            sector: geo.sector ?? null,
+            cell: geo.cell ?? null,
+            month: input.month,
+            loggedByUserId: actor.id,
+            entryId: created.id,
+            clientRowId: row.id,
+          },
+        });
+      }
+
+      if (
+        metric.key === "internet_subscriptions" &&
+        resolvedVariantKey &&
+        client.stockUnitIds.length > 0
+      ) {
+        const units = await tx.stockUnit.findMany({
+          where: { id: { in: client.stockUnitIds } },
+          include: { type: true },
+        });
+        assertUnitSetMatchesVariant(units, resolvedVariantKey);
+        // Fill serial fields from stock when picker ids are provided.
+        const sim = units.find((u) => u.type.key === "sim_4g");
+        const router = units.find((u) => u.type.key.startsWith("router_"));
+        await tx.coaEvidenceClient.update({
+          where: { id: row.id },
+          data: {
+            simNumber: sim?.serial ?? row.simNumber,
+            data: {
+              ...((client.data as Record<string, unknown> | null) ?? {}),
+              ...(router ? { routerSerial: router.serial } : {}),
+              ...(sim && resolvedVariantKey !== "sim"
+                ? { fourGNumber: sim.serial }
+                : {}),
+            } as Prisma.InputJsonValue,
+          },
+        });
+        await consumeUnits(tx, {
+          unitIds: client.stockUnitIds,
+          actor,
+          refType: "coa_evidence_client",
+          refId: row.id,
+          requiredHolderId: actor.id,
+          note: `${metric.label} · ${resolvedVariantKey}`,
+        });
+      }
+    }
+
+    return created.id;
+  });
+
+  const entry = await prisma.coaPerformanceEntry.findUniqueOrThrow({
+    where: { id: entryId },
     include: {
       metric: {
         select: { key: true, label: true, evidenceType: true },
@@ -486,18 +762,88 @@ export async function createEntry(
   return toPublicEntry(entry);
 }
 
+/** Upload a GPS map screenshot used by HBB/OBB logging. */
+export async function uploadGpsPhoto(
+  file: {
+    buffer: Buffer;
+    originalname: string;
+    mimetype: string;
+    size: number;
+  },
+  actor: AuthUser,
+) {
+  if (!canActAsCoa(actor.role)) throw errors.forbidden();
+  if (!ALLOWED_EVIDENCE_TYPES.has(file.mimetype)) {
+    throw errors.badRequest("Only JPEG, PNG, or WebP images are allowed");
+  }
+  if (file.size > MAX_EVIDENCE_BYTES) {
+    throw errors.badRequest("File must be 10 MB or smaller");
+  }
+
+  const uploaded = await uploadObject({
+    prefix: "coa-gps",
+    uploaderUserId: actor.id,
+    fileName: file.originalname || "gps.jpg",
+    contentType: file.mimetype,
+    body: file.buffer,
+  });
+
+  return {
+    storageKey: uploaded.storageKey,
+    contentType: uploaded.contentType,
+    sizeBytes: uploaded.sizeBytes,
+  };
+}
+
+/** Short-lived URL for a GPS photo stored on a client row. */
+export async function getGpsPhotoViewUrl(clientId: string, actor: AuthUser) {
+  if (!canActAsCoa(actor.role) && actor.role !== "OPERATIONS_MANAGER" && actor.role !== "MD_VIEWER") {
+    throw errors.forbidden();
+  }
+
+  const client = await prisma.coaEvidenceClient.findUnique({
+    where: { id: clientId },
+    include: {
+      entry: { select: { coaUserId: true } },
+    },
+  });
+  if (!client?.gpsPhotoKey) throw errors.notFound("GPS photo not found");
+
+  if (
+    actor.role === "COMMUNITY_OPPORTUNITY_ASSOCIATE" &&
+    client.entry.coaUserId !== actor.id
+  ) {
+    throw errors.forbidden();
+  }
+
+  const url = await getSignedObjectUrl(client.gpsPhotoKey, 15 * 60);
+  return { id: client.id, url, storageKey: client.gpsPhotoKey };
+}
+
 export async function deleteEntry(entryId: string, actor: AuthUser) {
   if (!canActAsCoa(actor.role)) throw errors.forbidden();
 
   const entry = await prisma.coaPerformanceEntry.findUnique({
     where: { id: entryId },
+    include: { clientRows: { select: { id: true } } },
   });
   if (!entry) throw errors.notFound("Entry not found");
   if (entry.coaUserId !== actor.id && actor.role !== "ADMIN") {
     throw errors.forbidden();
   }
 
-  await prisma.coaPerformanceEntry.delete({ where: { id: entryId } });
+  await prisma.$transaction(async (tx) => {
+    for (const client of entry.clientRows) {
+      await restoreUnitsForRef(tx, {
+        refType: "coa_evidence_client",
+        refId: client.id,
+        actor,
+        note: "Stock restored after performance entry delete",
+      });
+    }
+    await tx.partnerApplicant.deleteMany({ where: { entryId } });
+    await tx.coaPerformanceEntry.delete({ where: { id: entryId } });
+  });
   return { deleted: true };
 }
 
@@ -513,7 +859,16 @@ export async function deleteClientRow(clientId: string, actor: AuthUser) {
     throw errors.forbidden();
   }
 
-  await prisma.coaEvidenceClient.delete({ where: { id: clientId } });
+  await prisma.$transaction(async (tx) => {
+    await restoreUnitsForRef(tx, {
+      refType: "coa_evidence_client",
+      refId: row.id,
+      actor,
+      note: "Stock restored after client row delete",
+    });
+    await tx.partnerApplicant.deleteMany({ where: { clientRowId: clientId } });
+    await tx.coaEvidenceClient.delete({ where: { id: clientId } });
+  });
   return { deleted: true };
 }
 
