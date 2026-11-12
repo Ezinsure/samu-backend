@@ -76,6 +76,15 @@ export const listUnitsQuerySchema = z.object({
   typeKey: z.string().trim().max(60).optional(),
   status: stockUnitStatusSchema.optional(),
   holderUserId: z.string().trim().min(1).optional(),
+  /**
+   * When true, scope to the caller's usable stock:
+   * - TC/COA: units they hold
+   * - Admin: warehouse (unassigned) + units held by the admin (not other users)
+   */
+  mine: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
 });
 
 export const createAssignmentSchema = z

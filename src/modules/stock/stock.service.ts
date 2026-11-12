@@ -385,6 +385,16 @@ export async function intakeUnits(
   };
 }
 
+function mineStockWhere(actor: AuthUser): Prisma.StockUnitWhereInput {
+  if (actor.role === "ADMIN") {
+    // Unassigned warehouse stock OR held by this admin — not other TCs/COAs.
+    return {
+      OR: [{ holderUserId: null }, { holderUserId: actor.id }],
+    };
+  }
+  return { holderUserId: actor.id };
+}
+
 export async function listUnits(query: ListUnitsQuery, actor: AuthUser) {
   requireStockAccess(actor);
 
@@ -392,16 +402,21 @@ export async function listUnits(query: ListUnitsQuery, actor: AuthUser) {
   if (query.status) where.status = query.status;
   if (query.typeKey) where.type = { key: query.typeKey };
   if (query.search) {
-    where.OR = [
-      { serial: { contains: query.search, mode: "insensitive" } },
-      { notes: { contains: query.search, mode: "insensitive" } },
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      {
+        OR: [
+          { serial: { contains: query.search, mode: "insensitive" } },
+          { notes: { contains: query.search, mode: "insensitive" } },
+        ],
+      },
     ];
   }
 
-  if (actor.role === "ADMIN") {
-    if (query.holderUserId) where.holderUserId = query.holderUserId;
-  } else {
-    where.holderUserId = actor.id;
+  if (query.mine || actor.role !== "ADMIN") {
+    Object.assign(where, mineStockWhere(actor));
+  } else if (query.holderUserId) {
+    where.holderUserId = query.holderUserId;
   }
 
   const skip = (query.page - 1) * query.pageSize;
@@ -449,6 +464,44 @@ export async function getUnit(id: string, actor: AuthUser) {
     throw errors.forbidden("You can only view units assigned to you");
   }
 
+  const holderIds = [
+    ...new Set(
+      unit.movements.flatMap((m) =>
+        [m.fromHolderId, m.toHolderId].filter(Boolean) as string[],
+      ),
+    ),
+  ];
+  const holders = holderIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: holderIds } },
+        select: { id: true, name: true, email: true },
+      })
+    : [];
+  const holderById = new Map(holders.map((h) => [h.id, h]));
+
+  const transferItems = await prisma.stockTransferItem.findMany({
+    where: { unitId: unit.id },
+    include: {
+      transfer: {
+        include: {
+          toUser: { select: { id: true, name: true, email: true, role: true } },
+          fromUser: {
+            select: { id: true, name: true, email: true, role: true },
+          },
+          createdBy: { select: { id: true, name: true, email: true } },
+          events: {
+            orderBy: { createdAt: "asc" },
+            include: {
+              actor: { select: { id: true, name: true, email: true } },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
+
   return {
     ...toPublicUnit(unit),
     movements: unit.movements.map((m) => ({
@@ -456,6 +509,12 @@ export async function getUnit(id: string, actor: AuthUser) {
       type: m.type,
       fromHolderId: m.fromHolderId ?? undefined,
       toHolderId: m.toHolderId ?? undefined,
+      fromHolder: m.fromHolderId
+        ? holderById.get(m.fromHolderId) ?? undefined
+        : undefined,
+      toHolder: m.toHolderId
+        ? holderById.get(m.toHolderId) ?? undefined
+        : undefined,
       reasonCode: m.reasonCode ?? undefined,
       note: m.note ?? undefined,
       refType: m.refType ?? undefined,
@@ -463,19 +522,58 @@ export async function getUnit(id: string, actor: AuthUser) {
       actor: m.actor,
       createdAt: m.createdAt.toISOString(),
     })),
+    transferHistory: transferItems.map((item) => ({
+      itemId: item.id,
+      serial: item.serialSnapshot,
+      decision: item.decision,
+      decisionNote: item.decisionNote ?? undefined,
+      condition: item.condition ?? undefined,
+      transfer: {
+        id: item.transfer.id,
+        kind: item.transfer.kind,
+        status: item.transfer.status,
+        note: item.transfer.note ?? undefined,
+        reasonCode: item.transfer.reasonCode ?? undefined,
+        createdAt: item.transfer.createdAt.toISOString(),
+        updatedAt: item.transfer.updatedAt.toISOString(),
+        toUser: item.transfer.toUser
+          ? {
+              id: item.transfer.toUser.id,
+              name: item.transfer.toUser.name,
+              email: item.transfer.toUser.email,
+              role: item.transfer.toUser.role,
+            }
+          : undefined,
+        fromUser: item.transfer.fromUser
+          ? {
+              id: item.transfer.fromUser.id,
+              name: item.transfer.fromUser.name,
+              email: item.transfer.fromUser.email,
+              role: item.transfer.fromUser.role,
+            }
+          : undefined,
+        createdBy: item.transfer.createdBy,
+        events: item.transfer.events.map((event) => ({
+          id: event.id,
+          type: event.type,
+          note: event.note ?? undefined,
+          revision: event.revision ?? undefined,
+          actor: event.actor,
+          createdAt: event.createdAt.toISOString(),
+        })),
+      },
+    })),
   };
 }
 
 /** Counts for the signed-in holder's My stock page. */
 export async function getMyStockOverview(actor: AuthUser) {
   requireStockAccess(actor);
-  if (actor.role === "ADMIN") {
-    return getOverview(actor);
-  }
+  const scope = mineStockWhere(actor);
 
   const grouped = await prisma.stockUnit.groupBy({
     by: ["status"],
-    where: { holderUserId: actor.id },
+    where: scope,
     _count: { _all: true },
   });
   const byStatus: Record<string, number> = {};
@@ -487,7 +585,7 @@ export async function getMyStockOverview(actor: AuthUser) {
 
   const byTypeRows = await prisma.stockUnit.groupBy({
     by: ["typeId", "status"],
-    where: { holderUserId: actor.id },
+    where: scope,
     _count: { _all: true },
   });
   const types = await prisma.stockItemType.findMany({
@@ -522,7 +620,7 @@ export async function getMyStockOverview(actor: AuthUser) {
   return {
     total,
     byStatus: {
-      in_warehouse: 0,
+      in_warehouse: byStatus.in_warehouse ?? 0,
       in_transit: byStatus.in_transit ?? 0,
       with_holder: byStatus.with_holder ?? 0,
       sold: byStatus.sold ?? 0,
