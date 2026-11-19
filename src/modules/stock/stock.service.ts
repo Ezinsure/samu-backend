@@ -97,6 +97,11 @@ function toPublicUnit(row: {
   updatedAt: Date;
   type: { id: string; key: string; label: string };
   holder: { id: string; name: string; email: string; role: string } | null;
+  intakeBatch?: {
+    id: string;
+    label: string;
+    receivedAt: Date;
+  } | null;
 }) {
   return {
     id: row.id,
@@ -117,6 +122,13 @@ function toPublicUnit(row: {
           role: row.holder.role,
         }
       : null,
+    intakeBatch: row.intakeBatch
+      ? {
+          id: row.intakeBatch.id,
+          label: row.intakeBatch.label,
+          receivedAt: row.intakeBatch.receivedAt.toISOString(),
+        }
+      : undefined,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -343,8 +355,37 @@ export async function intakeUnits(
     throw errors.badRequest("No new serials to intake");
   }
 
+  const receivedAt = input.receivedAt
+    ? new Date(`${input.receivedAt}T12:00:00.000Z`)
+    : new Date();
+  if (Number.isNaN(receivedAt.getTime())) {
+    throw errors.badRequest("receivedAt is invalid");
+  }
+
+  const monthLabel = receivedAt.toLocaleString("en-GB", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  const label =
+    input.label?.trim() ||
+    `${type.label} · ${monthLabel}`;
+
   const createdIds: string[] = [];
+  let batchId = "";
   await prisma.$transaction(async (tx) => {
+    const batch = await tx.stockIntakeBatch.create({
+      data: {
+        label,
+        supplierRef: input.supplierRef?.trim() || null,
+        note: input.notes?.trim() || null,
+        typeId: type.id,
+        createdByUserId: actor.id,
+        receivedAt,
+      },
+    });
+    batchId = batch.id;
+
     for (const serial of ready) {
       const unit = await tx.stockUnit.create({
         data: {
@@ -353,6 +394,7 @@ export async function intakeUnits(
           status: "in_warehouse",
           condition: input.condition?.trim() || null,
           notes: input.notes?.trim() || null,
+          intakeBatchId: batch.id,
         },
       });
       createdIds.push(unit.id);
@@ -363,6 +405,8 @@ export async function intakeUnits(
           actorUserId: actor.id,
           note: input.notes?.trim() || null,
           reasonCode: "warehouse_intake",
+          refType: "stock_intake_batch",
+          refId: batch.id,
         },
       });
     }
@@ -371,9 +415,9 @@ export async function intakeUnits(
   await writeAuditLog({
     actorUserId: actor.id,
     action: "stock.intake",
-    objectType: "stock_item_type",
-    objectId: type.id,
-    summary: `${actor.name} intaked ${createdIds.length} ${type.label} unit(s).`,
+    objectType: "stock_intake_batch",
+    objectId: batchId,
+    summary: `${actor.name} intaked ${createdIds.length} ${type.label} unit(s) into batch "${label}".`,
     ip: meta?.ip,
     userAgent: meta?.userAgent,
   });
@@ -381,6 +425,8 @@ export async function intakeUnits(
   return {
     created: createdIds.length,
     skipped: preview.total - createdIds.length,
+    batchId,
+    batchLabel: label,
     preview,
   };
 }
@@ -418,6 +464,9 @@ export async function listUnits(query: ListUnitsQuery, actor: AuthUser) {
   } else if (query.holderUserId) {
     where.holderUserId = query.holderUserId;
   }
+  if (query.intakeBatchId) {
+    where.intakeBatchId = query.intakeBatchId;
+  }
 
   const skip = (query.page - 1) * query.pageSize;
   const [total, rows] = await Promise.all([
@@ -427,6 +476,9 @@ export async function listUnits(query: ListUnitsQuery, actor: AuthUser) {
       include: {
         type: { select: { id: true, key: true, label: true } },
         holder: { select: { id: true, name: true, email: true, role: true } },
+        intakeBatch: {
+          select: { id: true, label: true, receivedAt: true },
+        },
       },
       orderBy: [{ createdAt: "desc" }],
       skip,
@@ -450,6 +502,9 @@ export async function getUnit(id: string, actor: AuthUser) {
     include: {
       type: { select: { id: true, key: true, label: true } },
       holder: { select: { id: true, name: true, email: true, role: true } },
+      intakeBatch: {
+        select: { id: true, label: true, receivedAt: true, supplierRef: true },
+      },
       movements: {
         orderBy: { createdAt: "desc" },
         take: 100,
@@ -504,6 +559,14 @@ export async function getUnit(id: string, actor: AuthUser) {
 
   return {
     ...toPublicUnit(unit),
+    intakeBatch: unit.intakeBatch
+      ? {
+          id: unit.intakeBatch.id,
+          label: unit.intakeBatch.label,
+          receivedAt: unit.intakeBatch.receivedAt.toISOString(),
+          supplierRef: unit.intakeBatch.supplierRef ?? undefined,
+        }
+      : undefined,
     movements: unit.movements.map((m) => ({
       id: m.id,
       type: m.type,

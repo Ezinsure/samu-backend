@@ -321,6 +321,7 @@ model User {
   stockTransfersTo      StockTransfer[]       @relation("StockTransferTo")
   stockTransfersCreated StockTransfer[]       @relation("StockTransferCreator")
   stockTransferEvents   StockTransferEvent[]  @relation("StockTransferEventActor")
+  stockIntakeBatchesCreated StockIntakeBatch[] @relation("StockIntakeBatchCreator")
   partnerApplicantsLogged PartnerApplicant[]  @relation("PartnerApplicantLogger")
   partnerVerificationRuns PartnerVerificationRun[] @relation("PartnerVerificationRunActor")
 
@@ -1097,11 +1098,37 @@ model StockItemType {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  units StockUnit[]
+  units  StockUnit[]
+  batches StockIntakeBatch[]
 
   @@index([enabled])
   @@index([sortOrder])
   @@map("stock_item_types")
+}
+
+/// One warehouse intake event (shipment / PO receive) grouping serials for composition reports.
+model StockIntakeBatch {
+  id              String   @id @default(cuid())
+  /// Display name, e.g. "June 2026 4G SIMs".
+  label           String
+  /// Optional supplier / PO / invoice reference.
+  supplierRef     String?  @map("supplier_ref")
+  note            String?
+  /// Primary device type for this intake (single-type intakes today; multi-type later).
+  typeId          String?  @map("type_id")
+  createdByUserId String   @map("created_by_user_id")
+  receivedAt      DateTime @default(now()) @map("received_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  type      StockItemType? @relation(fields: [typeId], references: [id], onDelete: SetNull)
+  createdBy User           @relation("StockIntakeBatchCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  units     StockUnit[]
+
+  @@index([receivedAt])
+  @@index([typeId])
+  @@index([createdByUserId])
+  @@map("stock_intake_batches")
 }
 
 /// One physical SIM or router identified by serial number.
@@ -1112,21 +1139,25 @@ model StockUnit {
   status       StockUnitStatus @default(in_warehouse)
   /// Null while in warehouse / written off.
   holderUserId String?         @map("holder_user_id")
+  /// Intake shipment this serial arrived with (null for legacy units).
+  intakeBatchId String?        @map("intake_batch_id")
   attributes   Json?
   condition    String?
   notes        String?
   createdAt    DateTime        @default(now()) @map("created_at")
   updatedAt    DateTime        @updatedAt @map("updated_at")
 
-  type      StockItemType       @relation(fields: [typeId], references: [id], onDelete: Restrict)
-  holder    User?               @relation("StockUnitHolder", fields: [holderUserId], references: [id], onDelete: SetNull)
-  movements StockMovement[]
+  type        StockItemType        @relation(fields: [typeId], references: [id], onDelete: Restrict)
+  holder      User?                @relation("StockUnitHolder", fields: [holderUserId], references: [id], onDelete: SetNull)
+  intakeBatch StockIntakeBatch?    @relation(fields: [intakeBatchId], references: [id], onDelete: SetNull)
+  movements   StockMovement[]
   transferItems StockTransferItem[]
 
   @@unique([typeId, serial])
   @@index([status])
   @@index([holderUserId])
   @@index([serial])
+  @@index([intakeBatchId])
   @@map("stock_units")
 }
 

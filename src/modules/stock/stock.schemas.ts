@@ -43,11 +43,12 @@ export const agingQuerySchema = z.object({
 });
 
 export const exportQuerySchema = z.object({
-  kind: z.enum(["units", "by_holder", "movements"]),
+  kind: z.enum(["units", "by_holder", "movements", "intake_batches"]),
   typeKey: z.string().trim().max(60).optional(),
   holderUserId: z.string().trim().min(1).optional(),
   status: stockUnitStatusSchema.optional(),
   days: z.coerce.number().int().min(1).max(3650).optional(),
+  batchId: z.string().trim().min(1).optional(),
 });
 
 const serialSchema = z
@@ -57,16 +58,34 @@ const serialSchema = z
   .max(80)
   .transform((v) => v.toUpperCase().replace(/\s+/g, ""));
 
+const optionalIsoDate = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")
+  .optional();
+
 export const intakeUnitsSchema = z.object({
   typeKey: z.string().trim().min(2).max(60),
   serials: z.array(serialSchema).min(1).max(500),
   condition: z.string().trim().max(80).optional(),
   notes: z.string().trim().max(2000).optional(),
+  /** Display name for this intake shipment; auto-generated when omitted. */
+  label: z.string().trim().min(2).max(120).optional(),
+  supplierRef: z.string().trim().max(120).optional(),
+  /** Calendar date the shipment was received (defaults to today). */
+  receivedAt: optionalIsoDate,
 });
 
 export const previewIntakeSchema = z.object({
   typeKey: z.string().trim().min(2).max(60),
   serials: z.array(z.string().trim().min(1).max(120)).min(1).max(500),
+});
+
+export const listIntakeBatchesQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  search: z.string().trim().max(120).optional(),
+  typeKey: z.string().trim().max(60).optional(),
 });
 
 export const listUnitsQuerySchema = z.object({
@@ -76,6 +95,7 @@ export const listUnitsQuerySchema = z.object({
   typeKey: z.string().trim().max(60).optional(),
   status: stockUnitStatusSchema.optional(),
   holderUserId: z.string().trim().min(1).optional(),
+  intakeBatchId: z.string().trim().min(1).optional(),
   /**
    * When true, scope to the caller's usable stock:
    * - TC/COA: units they hold
@@ -222,6 +242,7 @@ export type UpdateStockTypeInput = z.infer<typeof updateStockTypeSchema>;
 export type IntakeUnitsInput = z.infer<typeof intakeUnitsSchema>;
 export type PreviewIntakeInput = z.infer<typeof previewIntakeSchema>;
 export type ListUnitsQuery = z.infer<typeof listUnitsQuerySchema>;
+export type ListIntakeBatchesQuery = z.infer<typeof listIntakeBatchesQuerySchema>;
 export type AgingQuery = z.infer<typeof agingQuerySchema>;
 export type ExportQuery = z.infer<typeof exportQuerySchema>;
 export const listAvailableUnitsQuerySchema = z.object({

@@ -425,6 +425,70 @@ export async function exportStockCsv(actor: AuthUser, query: ExportQuery) {
     };
   }
 
+  if (query.kind === "intake_batches") {
+    const where: Prisma.StockUnitWhereInput = {
+      intakeBatchId: query.batchId ? query.batchId : { not: null },
+      ...(query.typeKey ? { type: { key: query.typeKey } } : {}),
+      ...(query.status ? { status: query.status } : {}),
+    };
+    const units = await prisma.stockUnit.findMany({
+      where,
+      include: {
+        type: true,
+        holder: { select: { name: true, email: true, role: true } },
+        intakeBatch: {
+          select: {
+            id: true,
+            label: true,
+            supplierRef: true,
+            receivedAt: true,
+          },
+        },
+      },
+      orderBy: [
+        { intakeBatch: { receivedAt: "desc" } },
+        { type: { sortOrder: "asc" } },
+        { serial: "asc" },
+      ],
+      take: 20_000,
+    });
+
+    const csv = toCsv(
+      [
+        "batch_id",
+        "batch_label",
+        "supplier_ref",
+        "received_at",
+        "type",
+        "type_key",
+        "serial",
+        "status",
+        "holder_name",
+        "holder_email",
+        "condition",
+        "notes",
+      ],
+      units.map((u) => [
+        u.intakeBatch?.id,
+        u.intakeBatch?.label,
+        u.intakeBatch?.supplierRef,
+        u.intakeBatch?.receivedAt.toISOString(),
+        u.type.label,
+        u.type.key,
+        u.serial,
+        u.status,
+        u.holder?.name,
+        u.holder?.email,
+        u.condition,
+        u.notes,
+      ]),
+    );
+    return {
+      filename: `stock-intake-batches-${new Date().toISOString().slice(0, 10)}.csv`,
+      csv,
+    };
+  }
+
   // units / global stock
   const where: Prisma.StockUnitWhereInput = {};
   if (query.typeKey) where.type = { key: query.typeKey };
@@ -436,6 +500,7 @@ export async function exportStockCsv(actor: AuthUser, query: ExportQuery) {
     include: {
       type: true,
       holder: { select: { name: true, email: true, role: true } },
+      intakeBatch: { select: { id: true, label: true } },
     },
     orderBy: [{ type: { sortOrder: "asc" } }, { serial: "asc" }],
     take: 20_000,
@@ -447,6 +512,8 @@ export async function exportStockCsv(actor: AuthUser, query: ExportQuery) {
       "type_key",
       "serial",
       "status",
+      "intake_batch_id",
+      "intake_batch_label",
       "holder_name",
       "holder_email",
       "condition",
@@ -459,6 +526,8 @@ export async function exportStockCsv(actor: AuthUser, query: ExportQuery) {
       u.type.key,
       u.serial,
       u.status,
+      u.intakeBatch?.id,
+      u.intakeBatch?.label,
       u.holder?.name,
       u.holder?.email,
       u.condition,

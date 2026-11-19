@@ -16,6 +16,7 @@ import {
   exportQuerySchema,
   intakeUnitsSchema,
   listAvailableUnitsQuerySchema,
+  listIntakeBatchesQuerySchema,
   listTransfersQuerySchema,
   listUnitsQuerySchema,
   previewIntakeSchema,
@@ -28,6 +29,7 @@ import * as salesStock from "./stock-sales.service.js";
 import * as returns from "./stock-returns.service.js";
 import * as reports from "./stock-reports.service.js";
 import * as transfers from "./stock-transfers.service.js";
+import * as intakeBatches from "./stock-intake-batches.service.js";
 
 export const stockRouter = Router();
 
@@ -331,6 +333,38 @@ stockRouter.post(
     }
   },
 );
+
+stockRouter.get("/intake-batches", adminOnly, async (req, res, next) => {
+  try {
+    if (!req.user) throw errors.unauthorized();
+    const query = listIntakeBatchesQuerySchema.parse(req.query);
+    const data = await intakeBatches.listIntakeBatches(query, req.user);
+    res.json({
+      data: data.data,
+      meta: {
+        page: data.page,
+        pageSize: data.pageSize,
+        total: data.total,
+        totalPages: data.totalPages,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+stockRouter.get("/intake-batches/:id", adminOnly, async (req, res, next) => {
+  try {
+    if (!req.user) throw errors.unauthorized();
+    const data = await intakeBatches.getIntakeBatch(
+      String(req.params.id),
+      req.user,
+    );
+    res.json({ data });
+  } catch (error) {
+    next(error);
+  }
+});
 
 stockRouter.post(
   "/transfers/assignments",
