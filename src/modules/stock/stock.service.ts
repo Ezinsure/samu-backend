@@ -1,8 +1,12 @@
-import type { Prisma, StockUnitStatus } from "@prisma/client";
+import { Prisma, type StockUnitStatus } from "@prisma/client";
 import { writeAuditLog } from "../../lib/audit.js";
 import { errors } from "../../lib/errors.js";
 import { prisma } from "../../lib/prisma.js";
 import type { AuthUser } from "../../types/express.js";
+import {
+  normalizeUnitAttributes,
+  parseAttributesSchema,
+} from "./stock-attributes.js";
 import { STOCK_ITEM_TYPE_CATALOG } from "./stock-types.catalog.js";
 import type {
   CreateStockTypeInput,
@@ -42,6 +46,9 @@ function normalizeSerial(raw: string): string {
 export async function ensureStockItemTypes(): Promise<number> {
   let upserted = 0;
   for (const seed of STOCK_ITEM_TYPE_CATALOG) {
+    const attributesSchema = seed.attributesSchema
+      ? (seed.attributesSchema as unknown as Prisma.InputJsonValue)
+      : undefined;
     await prisma.stockItemType.upsert({
       where: { key: seed.key },
       create: {
@@ -50,11 +57,13 @@ export async function ensureStockItemTypes(): Promise<number> {
         description: seed.description,
         enabled: seed.enabled,
         sortOrder: seed.sortOrder,
+        ...(attributesSchema ? { attributesSchema } : {}),
       },
       update: {
         label: seed.label,
         description: seed.description,
         sortOrder: seed.sortOrder,
+        ...(attributesSchema ? { attributesSchema } : {}),
       },
     });
     upserted += 1;
@@ -70,9 +79,11 @@ function toPublicType(row: {
   enabled: boolean;
   sortOrder: number;
   lowStockThreshold?: number;
+  attributesSchema?: Prisma.JsonValue | null;
   updatedAt: Date;
   _count?: { units: number };
 }) {
+  const fields = parseAttributesSchema(row.attributesSchema);
   return {
     id: row.id,
     key: row.key,
@@ -81,6 +92,7 @@ function toPublicType(row: {
     enabled: row.enabled,
     sortOrder: row.sortOrder,
     lowStockThreshold: row.lowStockThreshold ?? 10,
+    attributesSchema: fields.length ? { fields } : undefined,
     unitCount: row._count?.units ?? 0,
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -274,59 +286,109 @@ export async function getOverview(actor: AuthUser) {
   };
 }
 
+type IntakeLine = {
+  typeKey: string;
+  serials: string[];
+  condition?: string;
+  attributes?: Record<string, string>;
+};
+
+function resolveIntakeLines(input: {
+  typeKey?: string;
+  serials?: string[];
+  condition?: string;
+  attributes?: Record<string, string>;
+  lines?: IntakeLine[];
+}): IntakeLine[] {
+  if (input.lines?.length) return input.lines;
+  return [
+    {
+      typeKey: input.typeKey!,
+      serials: input.serials!,
+      condition: input.condition,
+      attributes: input.attributes,
+    },
+  ];
+}
+
 export async function previewIntake(input: PreviewIntakeInput, actor: AuthUser) {
   requireAdmin(actor);
-  const type = await prisma.stockItemType.findUnique({
-    where: { key: input.typeKey },
+  const lines = resolveIntakeLines(input);
+  const typeKeys = [...new Set(lines.map((l) => l.typeKey))];
+  const types = await prisma.stockItemType.findMany({
+    where: { key: { in: typeKeys } },
   });
-  if (!type || !type.enabled) throw errors.badRequest("Device type is unavailable");
+  const typeByKey = new Map(types.map((t) => [t.key, t]));
+  for (const key of typeKeys) {
+    const type = typeByKey.get(key);
+    if (!type || !type.enabled) {
+      throw errors.badRequest(`Device type is unavailable: ${key}`);
+    }
+  }
 
-  const seen = new Set<string>();
+  const seenGlobal = new Set<string>();
   const rows: Array<{
     serial: string;
+    typeKey: string;
     status: "ready" | "invalid" | "duplicate_in_file" | "exists";
     reason?: string;
   }> = [];
 
-  for (const raw of input.serials) {
-    const serial = normalizeSerial(raw);
-    if (serial.length < 3) {
-      rows.push({
-        serial: raw.trim() || "(empty)",
-        status: "invalid",
-        reason: "Serial is too short",
-      });
-      continue;
+  for (const line of lines) {
+    const type = typeByKey.get(line.typeKey)!;
+    for (const raw of line.serials) {
+      const serial = normalizeSerial(raw);
+      const dedupeKey = `${type.id}:${serial}`;
+      if (serial.length < 3) {
+        rows.push({
+          serial: raw.trim() || "(empty)",
+          typeKey: line.typeKey,
+          status: "invalid",
+          reason: "Serial is too short",
+        });
+        continue;
+      }
+      if (seenGlobal.has(dedupeKey)) {
+        rows.push({
+          serial,
+          typeKey: line.typeKey,
+          status: "duplicate_in_file",
+          reason: "Duplicate serial in this intake",
+        });
+        continue;
+      }
+      seenGlobal.add(dedupeKey);
+      rows.push({ serial, typeKey: line.typeKey, status: "ready" });
     }
-    if (seen.has(serial)) {
-      rows.push({
-        serial,
-        status: "duplicate_in_file",
-        reason: "Duplicate serial in this list",
-      });
-      continue;
-    }
-    seen.add(serial);
-    rows.push({ serial, status: "ready" });
   }
 
-  const readySerials = rows.filter((r) => r.status === "ready").map((r) => r.serial);
-  if (readySerials.length > 0) {
+  for (const type of types) {
+    const readySerials = rows
+      .filter((r) => r.status === "ready" && r.typeKey === type.key)
+      .map((r) => r.serial);
+    if (readySerials.length === 0) continue;
     const existing = await prisma.stockUnit.findMany({
       where: { typeId: type.id, serial: { in: readySerials } },
       select: { serial: true },
     });
     const existingSet = new Set(existing.map((e) => e.serial));
     for (const row of rows) {
-      if (row.status === "ready" && existingSet.has(row.serial)) {
+      if (
+        row.status === "ready" &&
+        row.typeKey === type.key &&
+        existingSet.has(row.serial)
+      ) {
         row.status = "exists";
         row.reason = "Already in stock for this device type";
       }
     }
   }
 
+  const primary = types[0];
   return {
-    type: { id: type.id, key: type.key, label: type.label },
+    type: primary
+      ? { id: primary.id, key: primary.key, label: primary.label }
+      : { id: "", key: "", label: "" },
     total: rows.length,
     ready: rows.filter((r) => r.status === "ready").length,
     invalid: rows.filter((r) => r.status === "invalid").length,
@@ -342,17 +404,41 @@ export async function intakeUnits(
   meta?: RequestMeta,
 ) {
   requireAdmin(actor);
-  const type = await prisma.stockItemType.findUnique({
-    where: { key: input.typeKey },
+  const lines = resolveIntakeLines(input);
+  const typeKeys = [...new Set(lines.map((l) => l.typeKey))];
+  const types = await prisma.stockItemType.findMany({
+    where: { key: { in: typeKeys } },
   });
-  if (!type || !type.enabled) throw errors.badRequest("Device type is unavailable");
+  const typeByKey = new Map(types.map((t) => [t.key, t]));
+  for (const key of typeKeys) {
+    const type = typeByKey.get(key);
+    if (!type || !type.enabled) {
+      throw errors.badRequest(`Device type is unavailable: ${key}`);
+    }
+  }
+
+  const prepared = lines.map((line, index) => {
+    const type = typeByKey.get(line.typeKey)!;
+    const attributes = normalizeUnitAttributes(
+      type.attributesSchema,
+      line.attributes,
+      `Line ${index + 1}`,
+    );
+    return { line, type, attributes };
+  });
 
   const preview = await previewIntake(
-    { typeKey: input.typeKey, serials: input.serials },
+    {
+      lines: lines.map((l) => ({ typeKey: l.typeKey, serials: l.serials })),
+    },
     actor,
   );
-  const ready = preview.rows.filter((r) => r.status === "ready").map((r) => r.serial);
-  if (ready.length === 0) {
+  const readyKeys = new Set(
+    preview.rows
+      .filter((r) => r.status === "ready")
+      .map((r) => `${r.typeKey}:${r.serial}`),
+  );
+  if (readyKeys.size === 0) {
     throw errors.badRequest("No new serials to intake");
   }
 
@@ -368,9 +454,10 @@ export async function intakeUnits(
     year: "numeric",
     timeZone: "UTC",
   });
-  const label =
-    input.label?.trim() ||
-    `${type.label} · ${monthLabel}`;
+  const primaryLabel =
+    types.length === 1 ? types[0]!.label : "Mixed devices";
+  const label = input.label?.trim() || `${primaryLabel} · ${monthLabel}`;
+  const primaryTypeId = types.length === 1 ? types[0]!.id : null;
 
   const createdIds: string[] = [];
   let batchId = "";
@@ -380,36 +467,43 @@ export async function intakeUnits(
         label,
         supplierRef: input.supplierRef?.trim() || null,
         note: input.notes?.trim() || null,
-        typeId: type.id,
+        typeId: primaryTypeId,
         createdByUserId: actor.id,
         receivedAt,
       },
     });
     batchId = batch.id;
 
-    for (const serial of ready) {
-      const unit = await tx.stockUnit.create({
-        data: {
-          typeId: type.id,
-          serial,
-          status: "in_warehouse",
-          condition: input.condition?.trim() || null,
-          notes: input.notes?.trim() || null,
-          intakeBatchId: batch.id,
-        },
-      });
-      createdIds.push(unit.id);
-      await tx.stockMovement.create({
-        data: {
-          unitId: unit.id,
-          type: "intake",
-          actorUserId: actor.id,
-          note: input.notes?.trim() || null,
-          reasonCode: "warehouse_intake",
-          refType: "stock_intake_batch",
-          refId: batch.id,
-        },
-      });
+    for (const { line, type, attributes } of prepared) {
+      for (const raw of line.serials) {
+        const serial = normalizeSerial(raw);
+        if (!readyKeys.has(`${type.key}:${serial}`)) continue;
+        const unit = await tx.stockUnit.create({
+          data: {
+            typeId: type.id,
+            serial,
+            status: "in_warehouse",
+            condition: line.condition?.trim() || input.condition?.trim() || null,
+            notes: input.notes?.trim() || null,
+            intakeBatchId: batch.id,
+            attributes: attributes
+              ? (attributes as Prisma.InputJsonValue)
+              : undefined,
+          },
+        });
+        createdIds.push(unit.id);
+        await tx.stockMovement.create({
+          data: {
+            unitId: unit.id,
+            type: "intake",
+            actorUserId: actor.id,
+            note: input.notes?.trim() || null,
+            reasonCode: "warehouse_intake",
+            refType: "stock_intake_batch",
+            refId: batch.id,
+          },
+        });
+      }
     }
   });
 
@@ -418,7 +512,7 @@ export async function intakeUnits(
     action: "stock.intake",
     objectType: "stock_intake_batch",
     objectId: batchId,
-    summary: `${actor.name} intaked ${createdIds.length} ${type.label} unit(s) into batch "${label}".`,
+    summary: `${actor.name} intaked ${createdIds.length} unit(s) into batch "${label}".`,
     ip: meta?.ip,
     userAgent: meta?.userAgent,
   });

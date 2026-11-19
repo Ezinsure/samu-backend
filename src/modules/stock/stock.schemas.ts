@@ -65,22 +65,67 @@ const optionalIsoDate = z
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")
   .optional();
 
-export const intakeUnitsSchema = z.object({
+const unitAttributesSchema = z
+  .record(z.string().trim().min(1).max(80), z.string().trim().max(120))
+  .optional();
+
+const intakeLineSchema = z.object({
   typeKey: z.string().trim().min(2).max(60),
   serials: z.array(serialSchema).min(1).max(500),
   condition: z.string().trim().max(80).optional(),
-  notes: z.string().trim().max(2000).optional(),
-  /** Display name for this intake shipment; auto-generated when omitted. */
-  label: z.string().trim().min(2).max(120).optional(),
-  supplierRef: z.string().trim().max(120).optional(),
-  /** Calendar date the shipment was received (defaults to today). */
-  receivedAt: optionalIsoDate,
+  attributes: unitAttributesSchema,
 });
 
-export const previewIntakeSchema = z.object({
-  typeKey: z.string().trim().min(2).max(60),
-  serials: z.array(z.string().trim().min(1).max(120)).min(1).max(500),
-});
+export const intakeUnitsSchema = z
+  .object({
+    /** Single-line shorthand (legacy). Prefer `lines` for multi brand/model. */
+    typeKey: z.string().trim().min(2).max(60).optional(),
+    serials: z.array(serialSchema).min(1).max(500).optional(),
+    condition: z.string().trim().max(80).optional(),
+    attributes: unitAttributesSchema,
+    notes: z.string().trim().max(2000).optional(),
+    /** Display name for this intake shipment; auto-generated when omitted. */
+    label: z.string().trim().min(2).max(120).optional(),
+    supplierRef: z.string().trim().max(120).optional(),
+    /** Calendar date the shipment was received (defaults to today). */
+    receivedAt: optionalIsoDate,
+    /** One or more type/attribute/serial groups in the same batch. */
+    lines: z.array(intakeLineSchema).min(1).max(50).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.lines && value.lines.length > 0) return;
+    if (!value.typeKey || !value.serials?.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide typeKey and serials, or a lines array",
+      });
+    }
+  });
+
+export const previewIntakeSchema = z
+  .object({
+    typeKey: z.string().trim().min(2).max(60).optional(),
+    serials: z.array(z.string().trim().min(1).max(120)).min(1).max(500).optional(),
+    lines: z
+      .array(
+        z.object({
+          typeKey: z.string().trim().min(2).max(60),
+          serials: z.array(z.string().trim().min(1).max(120)).min(1).max(500),
+        }),
+      )
+      .min(1)
+      .max(50)
+      .optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.lines && value.lines.length > 0) return;
+    if (!value.typeKey || !value.serials?.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide typeKey and serials, or a lines array",
+      });
+    }
+  });
 
 export const listIntakeBatchesQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),

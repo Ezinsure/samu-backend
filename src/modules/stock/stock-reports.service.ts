@@ -462,6 +462,8 @@ export async function exportStockCsv(actor: AuthUser, query: ExportQuery) {
         "received_at",
         "type",
         "type_key",
+        "brand",
+        "model",
         "serial",
         "status",
         "holder_name",
@@ -469,20 +471,30 @@ export async function exportStockCsv(actor: AuthUser, query: ExportQuery) {
         "condition",
         "notes",
       ],
-      units.map((u) => [
-        u.intakeBatch?.id,
-        u.intakeBatch?.label,
-        u.intakeBatch?.supplierRef,
-        u.intakeBatch?.receivedAt.toISOString(),
-        u.type.label,
-        u.type.key,
-        u.serial,
-        u.status,
-        u.holder?.name,
-        u.holder?.email,
-        u.condition,
-        u.notes,
-      ]),
+      units.map((u) => {
+        const attrs =
+          u.attributes &&
+          typeof u.attributes === "object" &&
+          !Array.isArray(u.attributes)
+            ? (u.attributes as Record<string, unknown>)
+            : {};
+        return [
+          u.intakeBatch?.id,
+          u.intakeBatch?.label,
+          u.intakeBatch?.supplierRef,
+          u.intakeBatch?.receivedAt.toISOString(),
+          u.type.label,
+          u.type.key,
+          typeof attrs.brand === "string" ? attrs.brand : "",
+          typeof attrs.model === "string" ? attrs.model : "",
+          u.serial,
+          u.status,
+          u.holder?.name,
+          u.holder?.email,
+          u.condition,
+          u.notes,
+        ];
+      }),
     );
     return {
       filename: `stock-intake-batches-${new Date().toISOString().slice(0, 10)}.csv`,
