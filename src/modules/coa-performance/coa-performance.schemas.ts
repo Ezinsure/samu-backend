@@ -57,6 +57,6 @@ export const CLIENT_FIELD_REQUIREMENTS: Record<
 > = {
   bk_accounts: ["phone", "email", "accountRef"],
   ezinsure_agents_applied: ["phone", "email"],
-  internet_subscriptions: ["phone", "nidNumber", "simNumber"],
+  internet_subscriptions: ["phone", "simNumber"],
   internet_agents_applied: ["phone", "nidNumber"],
 };

@@ -206,6 +206,29 @@ export function normalizeClientForVariant(
       continue;
     }
 
+    if (field.type === "file") {
+      const fileMeta = dataIn[field.key];
+      const storageKey =
+        typeof fileMeta === "string"
+          ? fileMeta.trim()
+          : fileMeta &&
+              typeof fileMeta === "object" &&
+              "storageKey" in fileMeta &&
+              typeof (fileMeta as { storageKey: unknown }).storageKey === "string"
+            ? String((fileMeta as { storageKey: string }).storageKey).trim()
+            : "";
+      if (field.required && !storageKey) {
+        throw errors.badRequest(`${label}: ${field.label} is required`);
+      }
+      if (storageKey) {
+        dataOut[field.key] =
+          typeof fileMeta === "object" && fileMeta
+            ? fileMeta
+            : { storageKey };
+      }
+      continue;
+    }
+
     const value = String(raw ?? "").trim();
     if (field.required && !value) {
       throw errors.badRequest(`${label}: ${field.label} is required`);

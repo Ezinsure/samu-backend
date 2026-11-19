@@ -795,6 +795,73 @@ export async function uploadGpsPhoto(
   };
 }
 
+const ALLOWED_CLIENT_DOC_TYPES = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
+/** Upload a client document (e.g. National ID scan, signed agreement) for variant logging. */
+export async function uploadClientDocument(
+  file: {
+    buffer: Buffer;
+    originalname: string;
+    mimetype: string;
+    size: number;
+  },
+  actor: AuthUser,
+) {
+  if (!canActAsCoa(actor.role)) throw errors.forbidden();
+  if (!ALLOWED_CLIENT_DOC_TYPES.has(file.mimetype)) {
+    throw errors.badRequest("Only PDF, JPEG, PNG, or WebP files are allowed");
+  }
+  if (file.size > MAX_EVIDENCE_BYTES) {
+    throw errors.badRequest("File must be 10 MB or smaller");
+  }
+
+  const uploaded = await uploadObject({
+    prefix: "coa-client-docs",
+    uploaderUserId: actor.id,
+    fileName: file.originalname || "document.pdf",
+    contentType: file.mimetype,
+    body: file.buffer,
+  });
+
+  return {
+    storageKey: uploaded.storageKey,
+    originalName: file.originalname || "document.pdf",
+    contentType: uploaded.contentType,
+    sizeBytes: uploaded.sizeBytes,
+  };
+}
+
+/** Short-lived URL for a client document stored by storage key on a client row. */
+export async function getClientDocumentViewUrl(
+  storageKey: string,
+  actor: AuthUser,
+) {
+  if (
+    !canActAsCoa(actor.role) &&
+    actor.role !== "OPERATIONS_MANAGER" &&
+    actor.role !== "MD_VIEWER"
+  ) {
+    throw errors.forbidden();
+  }
+  const key = storageKey.trim();
+  if (!key || !key.startsWith("coa-client-docs/")) {
+    throw errors.badRequest("Invalid document key");
+  }
+  // COAs may only open docs they uploaded (key embeds uploader id after prefix).
+  if (actor.role === "COMMUNITY_OPPORTUNITY_ASSOCIATE") {
+    const parts = key.split("/");
+    const uploaderId = parts[1];
+    if (uploaderId !== actor.id) throw errors.forbidden();
+  }
+  const url = await getSignedObjectUrl(key, 15 * 60);
+  return { storageKey: key, url };
+}
+
 /** Short-lived URL for a GPS photo stored on a client row. */
 export async function getGpsPhotoViewUrl(clientId: string, actor: AuthUser) {
   if (!canActAsCoa(actor.role) && actor.role !== "OPERATIONS_MANAGER" && actor.role !== "MD_VIEWER") {
