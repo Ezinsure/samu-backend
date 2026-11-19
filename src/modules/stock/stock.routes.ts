@@ -113,6 +113,16 @@ stockRouter.get("/reports", adminOnly, async (req, res, next) => {
   }
 });
 
+stockRouter.get("/reports/catalog", adminOnly, async (req, res, next) => {
+  try {
+    if (!req.user) throw errors.unauthorized();
+    const data = await reports.getCatalogReport(req.user);
+    res.json({ data });
+  } catch (error) {
+    next(error);
+  }
+});
+
 stockRouter.get("/reports/aging", adminOnly, async (req, res, next) => {
   try {
     if (!req.user) throw errors.unauthorized();

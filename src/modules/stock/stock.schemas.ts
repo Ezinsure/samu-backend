@@ -44,7 +44,13 @@ export const agingQuerySchema = z.object({
 });
 
 export const exportQuerySchema = z.object({
-  kind: z.enum(["units", "by_holder", "movements", "intake_batches"]),
+  kind: z.enum([
+    "units",
+    "by_holder",
+    "movements",
+    "intake_batches",
+    "catalog",
+  ]),
   typeKey: z.string().trim().max(60).optional(),
   holderUserId: z.string().trim().min(1).optional(),
   status: stockUnitStatusSchema.optional(),

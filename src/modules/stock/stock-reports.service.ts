@@ -6,6 +6,7 @@ import { logger } from "../../lib/logger.js";
 import { sendMail } from "../../lib/mailer.js";
 import { prisma } from "../../lib/prisma.js";
 import type { AuthUser } from "../../types/express.js";
+import { formatAttributeLabel } from "./stock-attributes.js";
 import type { AgingQuery, ExportQuery } from "./stock.schemas.js";
 
 type RequestMeta = { ip?: string; userAgent?: string };
@@ -14,6 +15,51 @@ function requireAdmin(actor: AuthUser) {
   if (actor.role !== "ADMIN") {
     throw errors.forbidden("Only ADMIN can view stock reports");
   }
+}
+
+const STATUS_ORDER: StockUnitStatus[] = [
+  "in_warehouse",
+  "in_transit",
+  "with_holder",
+  "sold",
+  "returned_by_customer",
+  "damaged",
+  "returned_to_supplier",
+  "written_off",
+];
+
+const STATUS_LABEL: Record<StockUnitStatus, string> = {
+  in_warehouse: "In warehouse",
+  in_transit: "In transit",
+  with_holder: "With field holders",
+  sold: "With clients",
+  returned_by_customer: "Returned by customer",
+  damaged: "Faulty / damaged",
+  returned_to_supplier: "Returned to supplier",
+  written_off: "Deactivated",
+};
+
+function compositionFromCounts(
+  counts: Map<StockUnitStatus, number>,
+  total: number,
+) {
+  const rows: Array<{
+    status: StockUnitStatus;
+    label: string;
+    count: number;
+    percent: number;
+  }> = [];
+  for (const status of STATUS_ORDER) {
+    const count = counts.get(status) ?? 0;
+    if (count === 0) continue;
+    rows.push({
+      status,
+      label: STATUS_LABEL[status],
+      count,
+      percent: total > 0 ? Math.round((count / total) * 1000) / 10 : 0,
+    });
+  }
+  return rows;
 }
 
 function csvEscape(value: string | number | null | undefined): string {
@@ -127,6 +173,132 @@ export async function getReportsWorkspace(actor: AuthUser, agingDays = 30) {
       damagedUnits,
       total: openReturns + declinedAssignments + flaggedItems + damagedUnits,
     },
+  };
+}
+
+/**
+ * Unified catalog report: every device type with status composition,
+ * plus brand/model breakdown for attributed units (smartphones).
+ */
+export async function getCatalogReport(actor: AuthUser) {
+  requireAdmin(actor);
+
+  const [statusGrouped, typeGrouped, types, attributed] = await Promise.all([
+    prisma.stockUnit.groupBy({
+      by: ["status"],
+      _count: { _all: true },
+    }),
+    prisma.stockUnit.groupBy({
+      by: ["typeId", "status"],
+      _count: { _all: true },
+    }),
+    prisma.stockItemType.findMany({
+      orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
+    }),
+    prisma.stockUnit.findMany({
+      select: {
+        typeId: true,
+        status: true,
+        attributes: true,
+      },
+    }),
+  ]);
+
+  const byStatusMap = new Map<StockUnitStatus, number>();
+  let total = 0;
+  for (const row of statusGrouped) {
+    byStatusMap.set(row.status, row._count._all);
+    total += row._count._all;
+  }
+
+  const typeById = new Map(types.map((t) => [t.id, t]));
+  const typeStatus = new Map<string, Map<StockUnitStatus, number>>();
+  const typeTotals = new Map<string, number>();
+  for (const row of typeGrouped) {
+    typeTotals.set(
+      row.typeId,
+      (typeTotals.get(row.typeId) ?? 0) + row._count._all,
+    );
+    let map = typeStatus.get(row.typeId);
+    if (!map) {
+      map = new Map();
+      typeStatus.set(row.typeId, map);
+    }
+    map.set(row.status, row._count._all);
+  }
+
+  const byType = types
+    .map((type) => {
+      const typeTotal = typeTotals.get(type.id) ?? 0;
+      const counts = typeStatus.get(type.id) ?? new Map();
+      return {
+        type: { id: type.id, key: type.key, label: type.label },
+        enabled: type.enabled,
+        total: typeTotal,
+        composition: compositionFromCounts(counts, typeTotal),
+      };
+    })
+    .filter((row) => row.enabled || row.total > 0);
+
+  const attrStatus = new Map<string, Map<StockUnitStatus, number>>();
+  const attrMeta = new Map<
+    string,
+    { typeId: string; brand?: string; model?: string; label: string }
+  >();
+
+  for (const unit of attributed) {
+    const attrs =
+      unit.attributes &&
+      typeof unit.attributes === "object" &&
+      !Array.isArray(unit.attributes)
+        ? (unit.attributes as Record<string, unknown>)
+        : null;
+    const label = formatAttributeLabel(attrs);
+    if (!label) continue;
+    const brand =
+      typeof attrs?.brand === "string" ? attrs.brand.trim() : undefined;
+    const model =
+      typeof attrs?.model === "string" ? attrs.model.trim() : undefined;
+    const key = `${unit.typeId}::${brand ?? ""}::${model ?? ""}`;
+    if (!attrMeta.has(key)) {
+      attrMeta.set(key, { typeId: unit.typeId, brand, model, label });
+    }
+    let map = attrStatus.get(key);
+    if (!map) {
+      map = new Map();
+      attrStatus.set(key, map);
+    }
+    map.set(unit.status, (map.get(unit.status) ?? 0) + 1);
+  }
+
+  const byAttribute = [...attrMeta.entries()]
+    .map(([key, meta]) => {
+      const type = typeById.get(meta.typeId);
+      if (!type) return null;
+      const counts = attrStatus.get(key) ?? new Map();
+      let attrTotal = 0;
+      for (const n of counts.values()) attrTotal += n;
+      return {
+        type: { id: type.id, key: type.key, label: type.label },
+        brand: meta.brand,
+        model: meta.model,
+        label: meta.label,
+        total: attrTotal,
+        composition: compositionFromCounts(counts, attrTotal),
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => Boolean(row))
+    .sort((a, b) => {
+      const typeCmp = a.type.label.localeCompare(b.type.label);
+      if (typeCmp !== 0) return typeCmp;
+      return a.label.localeCompare(b.label);
+    });
+
+  return {
+    total,
+    composition: compositionFromCounts(byStatusMap, total),
+    byType,
+    byAttribute,
   };
 }
 
@@ -422,6 +594,59 @@ export async function exportStockCsv(actor: AuthUser, query: ExportQuery) {
     );
     return {
       filename: `stock-movements-${new Date().toISOString().slice(0, 10)}.csv`,
+      csv,
+    };
+  }
+
+  if (query.kind === "catalog") {
+    const catalog = await getCatalogReport(actor);
+    const rows: Array<Array<string | number | null | undefined>> = [];
+    for (const group of catalog.byType) {
+      for (const row of group.composition) {
+        rows.push([
+          group.type.label,
+          group.type.key,
+          "",
+          "",
+          row.status,
+          row.label,
+          row.count,
+          row.percent,
+          group.total,
+        ]);
+      }
+    }
+    for (const group of catalog.byAttribute) {
+      for (const row of group.composition) {
+        rows.push([
+          group.type.label,
+          group.type.key,
+          group.brand ?? "",
+          group.model ?? "",
+          row.status,
+          row.label,
+          row.count,
+          row.percent,
+          group.total,
+        ]);
+      }
+    }
+    const csv = toCsv(
+      [
+        "type",
+        "type_key",
+        "brand",
+        "model",
+        "status",
+        "status_label",
+        "count",
+        "percent",
+        "group_total",
+      ],
+      rows,
+    );
+    return {
+      filename: `stock-catalog-${new Date().toISOString().slice(0, 10)}.csv`,
       csv,
     };
   }
