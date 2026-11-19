@@ -223,6 +223,7 @@ enum StockUnitStatus {
   sold
   returned_by_customer
   damaged
+  returned_to_supplier
   written_off
 }
 
@@ -237,6 +238,7 @@ enum StockMovementType {
   return_to_office
   confirm_return
   adjust
+  return_to_supplier
   write_off
 }
 

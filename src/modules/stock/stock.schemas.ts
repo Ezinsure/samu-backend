@@ -7,6 +7,7 @@ export const stockUnitStatusSchema = z.enum([
   "sold",
   "returned_by_customer",
   "damaged",
+  "returned_to_supplier",
   "written_off",
 ]);
 
@@ -264,6 +265,25 @@ export const customerReturnSchema = z.object({
   note: z.string().trim().max(2000).optional(),
 });
 
+export const listFaultyQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  search: z.string().trim().max(120).optional(),
+  typeKey: z.string().trim().max(60).optional(),
+});
+
+export const confirmFaultySchema = z.object({
+  unitIds: z.array(z.string().trim().min(1)).min(1).max(200),
+  note: z.string().trim().max(2000).optional(),
+});
+
+export const disposeFaultySchema = z.object({
+  unitIds: z.array(z.string().trim().min(1)).min(1).max(200),
+  action: z.enum(["return_to_supplier", "deactivate"]),
+  note: z.string().trim().max(2000).optional(),
+  supplierRef: z.string().trim().max(120).optional(),
+});
+
 export type CreateAssignmentInput = z.infer<typeof createAssignmentSchema>;
 export type ListTransfersQuery = z.infer<typeof listTransfersQuerySchema>;
 export type RespondTransferInput = z.infer<typeof respondTransferSchema>;
@@ -277,3 +297,6 @@ export type UpdateReturnInput = z.infer<typeof updateReturnSchema>;
 export type ConfirmReturnInput = z.infer<typeof confirmReturnSchema>;
 export type CommentReturnInput = z.infer<typeof commentReturnSchema>;
 export type CancelReturnInput = z.infer<typeof cancelReturnSchema>;
+export type ListFaultyQuery = z.infer<typeof listFaultyQuerySchema>;
+export type ConfirmFaultyInput = z.infer<typeof confirmFaultySchema>;
+export type DisposeFaultyInput = z.infer<typeof disposeFaultySchema>;

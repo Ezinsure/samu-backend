@@ -113,6 +113,7 @@ export async function getReportsWorkspace(actor: AuthUser, agingDays = 30) {
       sold: byStatus.sold ?? 0,
       returned_by_customer: byStatus.returned_by_customer ?? 0,
       damaged: byStatus.damaged ?? 0,
+      returned_to_supplier: byStatus.returned_to_supplier ?? 0,
       written_off: byStatus.written_off ?? 0,
     },
     agingDays,

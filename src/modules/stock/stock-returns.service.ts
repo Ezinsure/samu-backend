@@ -527,6 +527,9 @@ export async function confirmReturn(
         continue;
       }
 
+      const isTechnicalFault = existing.reasonCode === "faulty";
+      const nextStatus = isTechnicalFault ? "damaged" : "in_warehouse";
+
       const updated = await tx.stockUnit.updateMany({
         where: {
           id: item.unitId,
@@ -534,7 +537,7 @@ export async function confirmReturn(
           status: { in: [...RETURNABLE_STATUSES] },
         },
         data: {
-          status: "in_warehouse",
+          status: nextStatus,
           holderUserId: null,
           condition: item.condition,
         },
@@ -565,8 +568,12 @@ export async function confirmReturn(
           fromHolderId: existing.fromUserId,
           toHolderId: null,
           actorUserId: actor.id,
-          reasonCode: "return_confirmed",
-          note: `Revision ${fresh.revision} dual-confirmed`,
+          reasonCode: isTechnicalFault
+            ? "return_confirmed_faulty"
+            : "return_confirmed",
+          note: isTechnicalFault
+            ? `Revision ${fresh.revision} dual-confirmed · entered faulty queue`
+            : `Revision ${fresh.revision} dual-confirmed`,
           refType: "stock_transfer",
           refId: id,
         },

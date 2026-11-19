@@ -17,6 +17,7 @@ const STATUS_ORDER: StockUnitStatus[] = [
   "sold",
   "returned_by_customer",
   "damaged",
+  "returned_to_supplier",
   "written_off",
 ];
 
@@ -27,7 +28,8 @@ const STATUS_LABEL: Record<StockUnitStatus, string> = {
   sold: "With clients",
   returned_by_customer: "Returned by customer",
   damaged: "Faulty / damaged",
-  written_off: "Written off",
+  returned_to_supplier: "Returned to supplier",
+  written_off: "Deactivated",
 };
 
 export type BatchCompositionRow = {
