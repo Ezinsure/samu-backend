@@ -7,6 +7,7 @@ export const stockUnitStatusSchema = z.enum([
   "sold",
   "returned_by_customer",
   "damaged",
+  "returned_to_supplier",
   "written_off",
 ]);
 
@@ -43,11 +44,18 @@ export const agingQuerySchema = z.object({
 });
 
 export const exportQuerySchema = z.object({
-  kind: z.enum(["units", "by_holder", "movements"]),
+  kind: z.enum([
+    "units",
+    "by_holder",
+    "movements",
+    "intake_batches",
+    "catalog",
+  ]),
   typeKey: z.string().trim().max(60).optional(),
   holderUserId: z.string().trim().min(1).optional(),
   status: stockUnitStatusSchema.optional(),
   days: z.coerce.number().int().min(1).max(3650).optional(),
+  batchId: z.string().trim().min(1).optional(),
 });
 
 const serialSchema = z
@@ -57,16 +65,79 @@ const serialSchema = z
   .max(80)
   .transform((v) => v.toUpperCase().replace(/\s+/g, ""));
 
-export const intakeUnitsSchema = z.object({
+const optionalIsoDate = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")
+  .optional();
+
+const unitAttributesSchema = z
+  .record(z.string().trim().min(1).max(80), z.string().trim().max(120))
+  .optional();
+
+const intakeLineSchema = z.object({
   typeKey: z.string().trim().min(2).max(60),
   serials: z.array(serialSchema).min(1).max(500),
   condition: z.string().trim().max(80).optional(),
-  notes: z.string().trim().max(2000).optional(),
+  attributes: unitAttributesSchema,
 });
 
-export const previewIntakeSchema = z.object({
-  typeKey: z.string().trim().min(2).max(60),
-  serials: z.array(z.string().trim().min(1).max(120)).min(1).max(500),
+export const intakeUnitsSchema = z
+  .object({
+    /** Single-line shorthand (legacy). Prefer `lines` for multi brand/model. */
+    typeKey: z.string().trim().min(2).max(60).optional(),
+    serials: z.array(serialSchema).min(1).max(500).optional(),
+    condition: z.string().trim().max(80).optional(),
+    attributes: unitAttributesSchema,
+    notes: z.string().trim().max(2000).optional(),
+    /** Display name for this intake shipment; auto-generated when omitted. */
+    label: z.string().trim().min(2).max(120).optional(),
+    supplierRef: z.string().trim().max(120).optional(),
+    /** Calendar date the shipment was received (defaults to today). */
+    receivedAt: optionalIsoDate,
+    /** One or more type/attribute/serial groups in the same batch. */
+    lines: z.array(intakeLineSchema).min(1).max(50).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.lines && value.lines.length > 0) return;
+    if (!value.typeKey || !value.serials?.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide typeKey and serials, or a lines array",
+      });
+    }
+  });
+
+export const previewIntakeSchema = z
+  .object({
+    typeKey: z.string().trim().min(2).max(60).optional(),
+    serials: z.array(z.string().trim().min(1).max(120)).min(1).max(500).optional(),
+    lines: z
+      .array(
+        z.object({
+          typeKey: z.string().trim().min(2).max(60),
+          serials: z.array(z.string().trim().min(1).max(120)).min(1).max(500),
+        }),
+      )
+      .min(1)
+      .max(50)
+      .optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.lines && value.lines.length > 0) return;
+    if (!value.typeKey || !value.serials?.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide typeKey and serials, or a lines array",
+      });
+    }
+  });
+
+export const listIntakeBatchesQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  search: z.string().trim().max(120).optional(),
+  typeKey: z.string().trim().max(60).optional(),
 });
 
 export const listUnitsQuerySchema = z.object({
@@ -76,6 +147,7 @@ export const listUnitsQuerySchema = z.object({
   typeKey: z.string().trim().max(60).optional(),
   status: stockUnitStatusSchema.optional(),
   holderUserId: z.string().trim().min(1).optional(),
+  intakeBatchId: z.string().trim().min(1).optional(),
   /**
    * When true, scope to the caller's usable stock:
    * - TC/COA: units they hold
@@ -222,6 +294,7 @@ export type UpdateStockTypeInput = z.infer<typeof updateStockTypeSchema>;
 export type IntakeUnitsInput = z.infer<typeof intakeUnitsSchema>;
 export type PreviewIntakeInput = z.infer<typeof previewIntakeSchema>;
 export type ListUnitsQuery = z.infer<typeof listUnitsQuerySchema>;
+export type ListIntakeBatchesQuery = z.infer<typeof listIntakeBatchesQuerySchema>;
 export type AgingQuery = z.infer<typeof agingQuerySchema>;
 export type ExportQuery = z.infer<typeof exportQuerySchema>;
 export const listAvailableUnitsQuerySchema = z.object({
@@ -243,6 +316,25 @@ export const customerReturnSchema = z.object({
   note: z.string().trim().max(2000).optional(),
 });
 
+export const listFaultyQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  search: z.string().trim().max(120).optional(),
+  typeKey: z.string().trim().max(60).optional(),
+});
+
+export const confirmFaultySchema = z.object({
+  unitIds: z.array(z.string().trim().min(1)).min(1).max(200),
+  note: z.string().trim().max(2000).optional(),
+});
+
+export const disposeFaultySchema = z.object({
+  unitIds: z.array(z.string().trim().min(1)).min(1).max(200),
+  action: z.enum(["return_to_supplier", "deactivate"]),
+  note: z.string().trim().max(2000).optional(),
+  supplierRef: z.string().trim().max(120).optional(),
+});
+
 export type CreateAssignmentInput = z.infer<typeof createAssignmentSchema>;
 export type ListTransfersQuery = z.infer<typeof listTransfersQuerySchema>;
 export type RespondTransferInput = z.infer<typeof respondTransferSchema>;
@@ -256,3 +348,6 @@ export type UpdateReturnInput = z.infer<typeof updateReturnSchema>;
 export type ConfirmReturnInput = z.infer<typeof confirmReturnSchema>;
 export type CommentReturnInput = z.infer<typeof commentReturnSchema>;
 export type CancelReturnInput = z.infer<typeof cancelReturnSchema>;
+export type ListFaultyQuery = z.infer<typeof listFaultyQuerySchema>;
+export type ConfirmFaultyInput = z.infer<typeof confirmFaultySchema>;
+export type DisposeFaultyInput = z.infer<typeof disposeFaultySchema>;

@@ -7,15 +7,19 @@ import {
   agingQuerySchema,
   cancelReturnSchema,
   commentReturnSchema,
+  confirmFaultySchema,
   confirmReturnSchema,
   createAssignmentSchema,
   createReturnSchema,
   createStockTypeSchema,
   customerReturnSchema,
   declineTransferSchema,
+  disposeFaultySchema,
   exportQuerySchema,
   intakeUnitsSchema,
   listAvailableUnitsQuerySchema,
+  listFaultyQuerySchema,
+  listIntakeBatchesQuerySchema,
   listTransfersQuerySchema,
   listUnitsQuerySchema,
   previewIntakeSchema,
@@ -28,6 +32,8 @@ import * as salesStock from "./stock-sales.service.js";
 import * as returns from "./stock-returns.service.js";
 import * as reports from "./stock-reports.service.js";
 import * as transfers from "./stock-transfers.service.js";
+import * as intakeBatches from "./stock-intake-batches.service.js";
+import * as faulty from "./stock-faulty.service.js";
 
 export const stockRouter = Router();
 
@@ -101,6 +107,16 @@ stockRouter.get("/reports", adminOnly, async (req, res, next) => {
       req.user,
       Number.isFinite(days) ? days : 30,
     );
+    res.json({ data });
+  } catch (error) {
+    next(error);
+  }
+});
+
+stockRouter.get("/reports/catalog", adminOnly, async (req, res, next) => {
+  try {
+    if (!req.user) throw errors.unauthorized();
+    const data = await reports.getCatalogReport(req.user);
     res.json({ data });
   } catch (error) {
     next(error);
@@ -326,6 +342,91 @@ stockRouter.post(
       const body = intakeUnitsSchema.parse(req.body);
       const data = await service.intakeUnits(body, req.user, meta(req));
       res.status(201).json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+stockRouter.get("/intake-batches", adminOnly, async (req, res, next) => {
+  try {
+    if (!req.user) throw errors.unauthorized();
+    const query = listIntakeBatchesQuerySchema.parse(req.query);
+    const data = await intakeBatches.listIntakeBatches(query, req.user);
+    res.json({
+      data: data.data,
+      meta: {
+        page: data.page,
+        pageSize: data.pageSize,
+        total: data.total,
+        totalPages: data.totalPages,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+stockRouter.get("/intake-batches/:id", adminOnly, async (req, res, next) => {
+  try {
+    if (!req.user) throw errors.unauthorized();
+    const data = await intakeBatches.getIntakeBatch(
+      String(req.params.id),
+      req.user,
+    );
+    res.json({ data });
+  } catch (error) {
+    next(error);
+  }
+});
+
+stockRouter.get("/faulty", adminOnly, async (req, res, next) => {
+  try {
+    if (!req.user) throw errors.unauthorized();
+    const query = listFaultyQuerySchema.parse(req.query);
+    const data = await faulty.listFaultyQueue(query, req.user);
+    res.json({
+      data: data.data,
+      meta: {
+        page: data.page,
+        pageSize: data.pageSize,
+        total: data.total,
+        totalPages: data.totalPages,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+stockRouter.post(
+  "/faulty/confirm",
+  adminOnly,
+  requireWrite,
+  writeLimiter,
+  async (req, res, next) => {
+    try {
+      if (!req.user) throw errors.unauthorized();
+      const body = confirmFaultySchema.parse(req.body);
+      const data = await faulty.confirmFaulty(body, req.user, meta(req));
+      res.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+stockRouter.post(
+  "/faulty/dispose",
+  adminOnly,
+  requireWrite,
+  writeLimiter,
+  async (req, res, next) => {
+    try {
+      if (!req.user) throw errors.unauthorized();
+      const body = disposeFaultySchema.parse(req.body);
+      const data = await faulty.disposeFaulty(body, req.user, meta(req));
+      res.json({ data });
     } catch (error) {
       next(error);
     }

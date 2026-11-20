@@ -8,7 +8,9 @@ export type CoaVariantFieldType =
   | "nid"
   | "date"
   | "select"
-  | "gps";
+  | "gps"
+  /** Uploaded document; value is an R2/S3 storage key stored in client `data`. */
+  | "file";
 
 export type CoaVariantFieldMapsTo =
   | "fullName"
@@ -117,7 +119,7 @@ export const COA_METRIC_VARIANT_CATALOG: CoaMetricVariantSeed[] = [
     key: "sim",
     label: "Mobile SIM internet",
     description:
-      "Partner activation for a normal 4G SIM — client name, phone, NID, and SIM number.",
+      "Partner activation for a normal 4G SIM — client name, phone, ID document, signed agreement, and SIM serial from stock.",
     sortOrder: 10,
     enabled: true,
     fieldSchema: [
@@ -136,18 +138,26 @@ export const COA_METRIC_VARIANT_CATALOG: CoaMetricVariantSeed[] = [
         mapsTo: "phone",
       },
       {
-        key: "nidNumber",
-        label: "National ID",
-        type: "nid",
+        key: "nationalIdDocument",
+        label: "National ID document",
+        type: "file",
         required: true,
-        mapsTo: "nidNumber",
+        placeholder: "PDF or image of the National ID",
+      },
+      {
+        key: "clientSignedAgreement",
+        label: "Client signed agreement",
+        type: "file",
+        required: true,
+        placeholder: "PDF or image of the signed agreement",
       },
       {
         key: "simNumber",
-        label: "4G SIM number",
+        label: "SIM serial number",
         type: "text",
         required: true,
         mapsTo: "simNumber",
+        placeholder: "Select from your in-hand SIM stock",
       },
     ],
   },

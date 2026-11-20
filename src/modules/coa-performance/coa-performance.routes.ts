@@ -212,6 +212,50 @@ coaPerformanceRouter.post(
   },
 );
 
+coaPerformanceRouter.post(
+  "/client-docs",
+  writeLimiter,
+  requireWrite,
+  requireRoles(...ACTORS),
+  upload.single("file"),
+  async (req, res, next) => {
+    try {
+      if (!req.user) throw errors.unauthorized();
+      const file = req.file;
+      if (!file) throw errors.badRequest("file is required");
+      const data = await service.uploadClientDocument(
+        {
+          buffer: file.buffer,
+          originalname: file.originalname,
+          mimetype: file.mimetype,
+          size: file.size,
+        },
+        req.user,
+      );
+      res.status(201).json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+coaPerformanceRouter.get(
+  "/client-docs/view",
+  requireRoles(...FILE_VIEWERS),
+  async (req, res, next) => {
+    try {
+      if (!req.user) throw errors.unauthorized();
+      const storageKey =
+        typeof req.query.storageKey === "string" ? req.query.storageKey : "";
+      if (!storageKey) throw errors.badRequest("storageKey is required");
+      const data = await service.getClientDocumentViewUrl(storageKey, req.user);
+      res.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 coaPerformanceRouter.get(
   "/clients/:id/gps-photo",
   requireRoles(...FILE_VIEWERS),
