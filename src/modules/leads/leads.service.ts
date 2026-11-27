@@ -24,11 +24,19 @@ export type PublicLead = {
   tcName?: string;
 };
 
-function canWriteCoap(role: AuthUser["role"]): boolean {
+function canWriteLeads(role: AuthUser["role"]): boolean {
   return (
     role === "ADMIN" ||
     role === "OPERATIONS_MANAGER" ||
-    role === "TERRITORY_COORDINATOR"
+    role === "TERRITORY_COORDINATOR" ||
+    role === "COMMUNITY_OPPORTUNITY_ASSOCIATE"
+  );
+}
+
+function isFieldOwner(role: AuthUser["role"]): boolean {
+  return (
+    role === "TERRITORY_COORDINATOR" ||
+    role === "COMMUNITY_OPPORTUNITY_ASSOCIATE"
   );
 }
 
@@ -57,40 +65,42 @@ function toPublic(lead: Lead, tcName?: string): PublicLead {
 
 function assertCanView(leadTcUserId: string, viewer: AuthUser): void {
   if (isNationalReader(viewer.role) || viewer.role === "ADMIN") return;
-  if (viewer.role === "TERRITORY_COORDINATOR" && leadTcUserId === viewer.id) {
+  if (isFieldOwner(viewer.role) && leadTcUserId === viewer.id) {
     return;
   }
   throw errors.forbidden();
 }
 
-async function assertActiveTc(tcUserId: string): Promise<void> {
-  const tc = await prisma.user.findFirst({
+async function assertActiveLeadOwner(ownerUserId: string): Promise<void> {
+  const owner = await prisma.user.findFirst({
     where: {
-      id: tcUserId,
-      role: "TERRITORY_COORDINATOR",
+      id: ownerUserId,
+      role: {
+        in: ["TERRITORY_COORDINATOR", "COMMUNITY_OPPORTUNITY_ASSOCIATE"],
+      },
       status: "active",
     },
   });
-  if (!tc) {
-    throw errors.badRequest("Selected user is not an active territory coordinator");
+  if (!owner) {
+    throw errors.badRequest("Selected user is not an active TC or COA");
   }
 }
 
 /**
- * Resolve owning TC: TCs always own their creates; Admin/Ops may assign.
+ * Resolve owning field user: TC/COA always own their creates; Admin/Ops may assign.
  */
 async function resolveTcUserId(
   input: LeadInput,
   viewer: AuthUser,
 ): Promise<string> {
-  if (viewer.role === "TERRITORY_COORDINATOR") {
+  if (isFieldOwner(viewer.role)) {
     return viewer.id;
   }
   const tcUserId = input.tcUserId;
   if (!tcUserId) {
     throw errors.badRequest("tcUserId is required");
   }
-  await assertActiveTc(tcUserId);
+  await assertActiveLeadOwner(tcUserId);
   return tcUserId;
 }
 
@@ -106,7 +116,7 @@ export async function listLeads(
 }> {
   const where: Prisma.LeadWhereInput = {};
 
-  if (viewer.role === "TERRITORY_COORDINATOR") {
+  if (isFieldOwner(viewer.role)) {
     where.tcUserId = viewer.id;
   } else if (!isNationalReader(viewer.role) && viewer.role !== "ADMIN") {
     return {
@@ -168,7 +178,7 @@ export async function createLead(
   input: LeadInput,
   viewer: AuthUser,
 ): Promise<PublicLead> {
-  if (!canWriteCoap(viewer.role)) {
+  if (!canWriteLeads(viewer.role)) {
     throw errors.forbidden("Not allowed to create leads");
   }
 
@@ -210,7 +220,7 @@ export async function updateLead(
   input: LeadInput,
   viewer: AuthUser,
 ): Promise<PublicLead> {
-  if (!canWriteCoap(viewer.role)) {
+  if (!canWriteLeads(viewer.role)) {
     throw errors.forbidden("Not allowed to update leads");
   }
 
@@ -219,10 +229,7 @@ export async function updateLead(
     throw errors.notFound("Lead not found");
   }
 
-  if (
-    viewer.role === "TERRITORY_COORDINATOR" &&
-    existing.tcUserId !== viewer.id
-  ) {
+  if (isFieldOwner(viewer.role) && existing.tcUserId !== viewer.id) {
     throw errors.forbidden("Lead not in your territory");
   }
 
@@ -233,7 +240,7 @@ export async function updateLead(
     input.tcUserId &&
     input.tcUserId !== existing.tcUserId
   ) {
-    await assertActiveTc(input.tcUserId);
+    await assertActiveLeadOwner(input.tcUserId);
     tcUserId = input.tcUserId;
   }
 

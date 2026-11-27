@@ -259,7 +259,9 @@ export async function getCatalogReport(actor: AuthUser) {
       typeof attrs?.brand === "string" ? attrs.brand.trim() : undefined;
     const model =
       typeof attrs?.model === "string" ? attrs.model.trim() : undefined;
-    const key = `${unit.typeId}::${brand ?? ""}::${model ?? ""}`;
+    const category =
+      typeof attrs?.category === "string" ? attrs.category.trim() : undefined;
+    const key = `${unit.typeId}::${brand ?? ""}::${model ?? ""}::${category ?? ""}`;
     if (!attrMeta.has(key)) {
       attrMeta.set(key, { typeId: unit.typeId, brand, model, label });
     }

@@ -54,7 +54,7 @@ export const COA_METRIC_CATALOG: CoaMetricSeed[] = [
     key: "internet_subscriptions",
     label: "Internet subscriptions activated",
     description:
-      "Partner activation — choose Mobile SIM, Home Broadband (HBB), or Office Broadband (OBB).",
+      "Partner activation — choose Mobile SIM or Router (HBB / OBB).",
     monthlyTarget: 15,
     evidenceType: "client_rows",
     enabled: true,

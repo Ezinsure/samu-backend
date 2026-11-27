@@ -77,7 +77,7 @@ const unitAttributesSchema = z
 
 const intakeLineSchema = z.object({
   typeKey: z.string().trim().min(2).max(60),
-  serials: z.array(serialSchema).min(1).max(500),
+  serials: z.array(serialSchema).min(1).max(1000),
   condition: z.string().trim().max(80).optional(),
   attributes: unitAttributesSchema,
 });
@@ -86,7 +86,7 @@ export const intakeUnitsSchema = z
   .object({
     /** Single-line shorthand (legacy). Prefer `lines` for multi brand/model. */
     typeKey: z.string().trim().min(2).max(60).optional(),
-    serials: z.array(serialSchema).min(1).max(500).optional(),
+    serials: z.array(serialSchema).min(1).max(1000).optional(),
     condition: z.string().trim().max(80).optional(),
     attributes: unitAttributesSchema,
     notes: z.string().trim().max(2000).optional(),
@@ -111,12 +111,12 @@ export const intakeUnitsSchema = z
 export const previewIntakeSchema = z
   .object({
     typeKey: z.string().trim().min(2).max(60).optional(),
-    serials: z.array(z.string().trim().min(1).max(120)).min(1).max(500).optional(),
+    serials: z.array(z.string().trim().min(1).max(120)).min(1).max(1000).optional(),
     lines: z
       .array(
         z.object({
           typeKey: z.string().trim().min(2).max(60),
-          serials: z.array(z.string().trim().min(1).max(120)).min(1).max(500),
+          serials: z.array(z.string().trim().min(1).max(120)).min(1).max(1000),
         }),
       )
       .min(1)

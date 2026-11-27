@@ -79,7 +79,8 @@ export async function ensureCoaMetricVariants(): Promise<number> {
         description: seed.description ?? null,
         fieldSchema: seed.fieldSchema as unknown as Prisma.InputJsonValue,
         sortOrder: seed.sortOrder,
-        // Preserve admin-enabled toggles by not overwriting `enabled` on update.
+        // Apply catalog enabled flag so legacy HBB/OBB stay retired.
+        enabled: seed.enabled,
       },
     });
     upserted += 1;
@@ -283,9 +284,14 @@ export function normalizeClientForVariant(
     else dataOut[field.key] = value;
   }
 
-  // Product type is implied by the variant (hbb/obb).
+  // Product type from router category (or legacy hbb/obb variant keys).
   if (variantKey === "hbb" || variantKey === "obb") {
     dataOut.productType = variantKey.toUpperCase();
+  } else if (variantKey === "router") {
+    const category = String(dataOut.category ?? "").trim().toUpperCase();
+    if (category === "HBB" || category === "OBB") {
+      dataOut.productType = category;
+    }
   }
 
   if (!fullName || fullName.length < 2) {

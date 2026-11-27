@@ -247,7 +247,7 @@ export async function createSale(
         refType: "sale",
         refId: created.id,
         requiredHolderId: tcUserId,
-        allowedTypeKeys: ["sim_4g", "router_hbb", "router_obb"],
+        allowedTypeKeys: ["sim_4g", "router", "router_hbb", "router_obb"],
         note: `Sale ${created.productName}`,
       });
     }
@@ -351,7 +351,7 @@ export async function updateSale(
         refType: "sale",
         refId: updated.id,
         requiredHolderId: tcUserId,
-        allowedTypeKeys: ["sim_4g", "router_hbb", "router_obb"],
+        allowedTypeKeys: ["sim_4g", "router", "router_hbb", "router_obb"],
         note: `Sale ${updated.productName}`,
       });
     }

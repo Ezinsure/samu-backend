@@ -190,9 +190,11 @@ async function compositionForBatchIds(batchIds: string[]) {
       typeof attrs?.brand === "string" ? attrs.brand.trim() : undefined;
     const model =
       typeof attrs?.model === "string" ? attrs.model.trim() : undefined;
+    const category =
+      typeof attrs?.category === "string" ? attrs.category.trim() : undefined;
     const label = formatAttributeLabel(attrs);
     if (!label) continue;
-    const attrKey = `${unit.typeId}::${brand ?? ""}::${model ?? ""}`;
+    const attrKey = `${unit.typeId}::${brand ?? ""}::${model ?? ""}::${category ?? ""}`;
     if (!bucket.attrMeta.has(attrKey)) {
       bucket.attrMeta.set(attrKey, {
         typeId: unit.typeId,

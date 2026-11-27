@@ -88,6 +88,9 @@ export function formatAttributeLabel(
   attrs: Record<string, unknown> | null | undefined,
 ): string | null {
   if (!attrs) return null;
+  const category =
+    typeof attrs.category === "string" ? attrs.category.trim() : "";
+  if (category) return category;
   const brand =
     typeof attrs.brand === "string" ? attrs.brand.trim() : "";
   const model =
@@ -96,4 +99,17 @@ export function formatAttributeLabel(
   if (brand) return brand;
   if (model) return model;
   return null;
+}
+
+/** Display label like `Router (HBB)` or `Smartphone · Samsung · A17`. */
+export function formatTypeWithAttributes(
+  typeLabel: string,
+  attrs: Record<string, unknown> | null | undefined,
+): string {
+  if (!attrs) return typeLabel;
+  const category =
+    typeof attrs.category === "string" ? attrs.category.trim() : "";
+  if (category) return `${typeLabel} (${category})`;
+  const detail = formatAttributeLabel(attrs);
+  return detail ? `${typeLabel} · ${detail}` : typeLabel;
 }
