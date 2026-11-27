@@ -365,21 +365,20 @@ export function expectedUnitsForInternetVariant(variantKey: string): {
   requiredCount: number;
   typeKeys: string[];
   routerTypeKey?: string;
+  /** Accepted legacy router keys while old stock rows finish migrating. */
+  routerTypeKeys?: string[];
   simTypeKey: string;
 } {
-  if (variantKey === "hbb") {
+  if (
+    variantKey === "router" ||
+    variantKey === "hbb" ||
+    variantKey === "obb"
+  ) {
     return {
       requiredCount: 2,
-      typeKeys: ["router_hbb", "sim_4g"],
-      routerTypeKey: "router_hbb",
-      simTypeKey: "sim_4g",
-    };
-  }
-  if (variantKey === "obb") {
-    return {
-      requiredCount: 2,
-      typeKeys: ["router_obb", "sim_4g"],
-      routerTypeKey: "router_obb",
+      typeKeys: ["router", "sim_4g"],
+      routerTypeKey: "router",
+      routerTypeKeys: ["router", "router_hbb", "router_obb"],
       simTypeKey: "sim_4g",
     };
   }
@@ -402,11 +401,30 @@ export function assertUnitSetMatchesVariant(
     );
   }
   const keys = units.map((u) => u.type.key);
-  for (const typeKey of expected.typeKeys) {
-    if (!keys.includes(typeKey)) {
+  const hasSim = keys.includes(expected.simTypeKey);
+  if (!hasSim) {
+    throw errors.badRequest(
+      `Missing required device type in selection (${expected.simTypeKey})`,
+    );
+  }
+  if (expected.routerTypeKey || expected.routerTypeKeys?.length) {
+    const routerKeys = new Set(
+      expected.routerTypeKeys ??
+        (expected.routerTypeKey ? [expected.routerTypeKey] : []),
+    );
+    const hasRouter = keys.some((key) => routerKeys.has(key));
+    if (!hasRouter) {
       throw errors.badRequest(
-        `Missing required device type in selection (${typeKey})`,
+        "Missing required device type in selection (router)",
       );
+    }
+  } else {
+    for (const typeKey of expected.typeKeys) {
+      if (!keys.includes(typeKey)) {
+        throw errors.badRequest(
+          `Missing required device type in selection (${typeKey})`,
+        );
+      }
     }
   }
   if (new Set(keys).size !== keys.length) {

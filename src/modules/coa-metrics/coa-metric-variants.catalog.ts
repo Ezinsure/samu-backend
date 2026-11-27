@@ -42,7 +42,17 @@ export type CoaMetricVariantSeed = {
   fieldSchema: CoaVariantFieldDef[];
 };
 
-const BROADBAND_FIELDS: CoaVariantFieldDef[] = [
+const ROUTER_FIELDS: CoaVariantFieldDef[] = [
+  {
+    key: "category",
+    label: "Router category",
+    type: "select",
+    required: true,
+    options: [
+      { value: "HBB", label: "HBB — Home Broadband" },
+      { value: "OBB", label: "OBB — Office Broadband" },
+    ],
+  },
   {
     key: "registrationDate",
     label: "Date of registration",
@@ -163,22 +173,31 @@ export const COA_METRIC_VARIANT_CATALOG: CoaMetricVariantSeed[] = [
   },
   {
     metricKey: "internet_subscriptions",
-    key: "hbb",
-    label: "Home Broadband (HBB)",
+    key: "router",
+    label: "Router",
     description:
-      "Home Broadband router activation — customer, router serial, GPS, 4G number, and speed.",
+      "Router activation (HBB or OBB) — customer, router serial, GPS, 4G number, and speed.",
     sortOrder: 20,
     enabled: true,
-    fieldSchema: BROADBAND_FIELDS,
+    fieldSchema: ROUTER_FIELDS,
+  },
+  // Legacy variants kept disabled so historical entries remain readable.
+  {
+    metricKey: "internet_subscriptions",
+    key: "hbb",
+    label: "Home Broadband (HBB)",
+    description: "Legacy — use Router.",
+    sortOrder: 90,
+    enabled: false,
+    fieldSchema: ROUTER_FIELDS,
   },
   {
     metricKey: "internet_subscriptions",
     key: "obb",
     label: "Office Broadband (OBB)",
-    description:
-      "Office Broadband router activation — customer, router serial, GPS, 4G number, and speed.",
-    sortOrder: 30,
-    enabled: true,
-    fieldSchema: BROADBAND_FIELDS,
+    description: "Legacy — use Router.",
+    sortOrder: 91,
+    enabled: false,
+    fieldSchema: ROUTER_FIELDS,
   },
 ];

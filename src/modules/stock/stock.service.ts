@@ -7,7 +7,10 @@ import {
   normalizeUnitAttributes,
   parseAttributesSchema,
 } from "./stock-attributes.js";
-import { STOCK_ITEM_TYPE_CATALOG } from "./stock-types.catalog.js";
+import {
+  LEGACY_ROUTER_TYPE_KEYS,
+  STOCK_ITEM_TYPE_CATALOG,
+} from "./stock-types.catalog.js";
 import type {
   CreateStockTypeInput,
   IntakeUnitsInput,
@@ -62,12 +65,20 @@ export async function ensureStockItemTypes(): Promise<number> {
       update: {
         label: seed.label,
         description: seed.description,
+        enabled: seed.enabled,
         sortOrder: seed.sortOrder,
         ...(attributesSchema ? { attributesSchema } : {}),
       },
     });
     upserted += 1;
   }
+
+  // Keep legacy HBB/OBB type rows for history, but hide them from intake/assign.
+  await prisma.stockItemType.updateMany({
+    where: { key: { in: [...LEGACY_ROUTER_TYPE_KEYS] } },
+    data: { enabled: false },
+  });
+
   return upserted;
 }
 

@@ -23,7 +23,7 @@ const clientRowBase = z.object({
   district: optionalText(80),
   sector: optionalText(80),
   cell: optionalText(80),
-  /** Logging variant (e.g. sim, hbb, obb). */
+  /** Logging variant (e.g. sim, router). */
   variantKey: z.string().trim().min(1).max(40).optional(),
   /** Extra fields for schema-driven variants. */
   data: z.record(z.string(), z.unknown()).optional(),

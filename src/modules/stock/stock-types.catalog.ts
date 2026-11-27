@@ -11,6 +11,21 @@ export type StockItemTypeSeed = {
   attributesSchema?: StockAttributesSchema;
 };
 
+const ROUTER_ATTRIBUTES: StockAttributesSchema = {
+  fields: [
+    {
+      key: "category",
+      label: "Category",
+      type: "select",
+      required: true,
+      options: [
+        { value: "HBB", label: "HBB — Home Broadband" },
+        { value: "OBB", label: "OBB — Office Broadband" },
+      ],
+    },
+  ],
+};
+
 const SMARTPHONE_ATTRIBUTES: StockAttributesSchema = {
   fields: [
     {
@@ -39,18 +54,13 @@ export const STOCK_ITEM_TYPE_CATALOG: StockItemTypeSeed[] = [
     enabled: true,
   },
   {
-    key: "router_hbb",
-    label: "Home Broadband router (HBB)",
-    description: "Routers issued for Home Broadband customer activations.",
+    key: "router",
+    label: "Router",
+    description:
+      "Broadband routers tracked by category (HBB / OBB) through intake, assignment, sale, and returns.",
     sortOrder: 20,
     enabled: true,
-  },
-  {
-    key: "router_obb",
-    label: "Office Broadband router (OBB)",
-    description: "Routers issued for Office Broadband customer activations.",
-    sortOrder: 30,
-    enabled: true,
+    attributesSchema: ROUTER_ATTRIBUTES,
   },
   {
     key: "smartphone",
@@ -62,3 +72,6 @@ export const STOCK_ITEM_TYPE_CATALOG: StockItemTypeSeed[] = [
     attributesSchema: SMARTPHONE_ATTRIBUTES,
   },
 ];
+
+/** Legacy type keys retired in favour of unified `router` + category attribute. */
+export const LEGACY_ROUTER_TYPE_KEYS = ["router_hbb", "router_obb"] as const;

@@ -522,7 +522,7 @@ export async function createEntry(
     (hasVariants ? metric.variants[0]?.key : undefined);
 
   if (hasVariants && !resolvedVariantKey) {
-    throw errors.badRequest("Choose an internet type (SIM, HBB, or OBB)");
+    throw errors.badRequest("Choose an internet type (SIM or Router)");
   }
 
   let normalized: NormalizedClientRow[] = [];
