@@ -46,6 +46,18 @@ function normalizeSerial(raw: string): string {
   return raw.trim().toUpperCase().replace(/\s+/g, "");
 }
 
+const INTAKE_INSERT_CHUNK = 250;
+/** Large intakes (hundreds of serials) need more than the default 5s interactive tx. */
+const INTAKE_TX_TIMEOUT_MS = 120_000;
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    out.push(items.slice(i, i + size));
+  }
+  return out;
+}
+
 export async function ensureStockItemTypes(): Promise<number> {
   let upserted = 0;
   for (const seed of STOCK_ITEM_TYPE_CATALOG) {
@@ -470,67 +482,92 @@ export async function intakeUnits(
   const label = input.label?.trim() || `${primaryLabel} · ${monthLabel}`;
   const primaryTypeId = types.length === 1 ? types[0]!.id : null;
 
-  const createdIds: string[] = [];
-  let batchId = "";
-  await prisma.$transaction(async (tx) => {
-    const batch = await tx.stockIntakeBatch.create({
-      data: {
-        label,
-        supplierRef: input.supplierRef?.trim() || null,
-        note: input.notes?.trim() || null,
-        typeId: primaryTypeId,
-        createdByUserId: actor.id,
-        receivedAt,
-      },
-    });
-    batchId = batch.id;
+  const unitPayloads: Prisma.StockUnitCreateManyInput[] = [];
+  for (const { line, type, attributes } of prepared) {
+    const condition =
+      line.condition?.trim() || input.condition?.trim() || null;
+    for (const raw of line.serials) {
+      const serial = normalizeSerial(raw);
+      if (!readyKeys.has(`${type.key}:${serial}`)) continue;
+      unitPayloads.push({
+        typeId: type.id,
+        serial,
+        status: "in_warehouse",
+        condition,
+        notes: input.notes?.trim() || null,
+        attributes: attributes
+          ? (attributes as Prisma.InputJsonValue)
+          : undefined,
+      });
+    }
+  }
 
-    for (const { line, type, attributes } of prepared) {
-      for (const raw of line.serials) {
-        const serial = normalizeSerial(raw);
-        if (!readyKeys.has(`${type.key}:${serial}`)) continue;
-        const unit = await tx.stockUnit.create({
-          data: {
-            typeId: type.id,
-            serial,
-            status: "in_warehouse",
-            condition: line.condition?.trim() || input.condition?.trim() || null,
-            notes: input.notes?.trim() || null,
-            intakeBatchId: batch.id,
-            attributes: attributes
-              ? (attributes as Prisma.InputJsonValue)
-              : undefined,
-          },
+  if (unitPayloads.length === 0) {
+    throw errors.badRequest("No new serials to intake");
+  }
+
+  let batchId = "";
+  let createdCount = 0;
+  await prisma.$transaction(
+    async (tx) => {
+      const batch = await tx.stockIntakeBatch.create({
+        data: {
+          label,
+          supplierRef: input.supplierRef?.trim() || null,
+          note: input.notes?.trim() || null,
+          typeId: primaryTypeId,
+          createdByUserId: actor.id,
+          receivedAt,
+        },
+      });
+      batchId = batch.id;
+
+      const withBatch = unitPayloads.map((row) => ({
+        ...row,
+        intakeBatchId: batch.id,
+      }));
+
+      const createdIds: string[] = [];
+      for (const chunk of chunkArray(withBatch, INTAKE_INSERT_CHUNK)) {
+        const created = await tx.stockUnit.createManyAndReturn({
+          data: chunk,
+          select: { id: true },
         });
-        createdIds.push(unit.id);
-        await tx.stockMovement.create({
-          data: {
-            unitId: unit.id,
-            type: "intake",
+        for (const row of created) createdIds.push(row.id);
+      }
+      createdCount = createdIds.length;
+
+      const note = input.notes?.trim() || null;
+      for (const chunk of chunkArray(createdIds, INTAKE_INSERT_CHUNK)) {
+        await tx.stockMovement.createMany({
+          data: chunk.map((unitId) => ({
+            unitId,
+            type: "intake" as const,
             actorUserId: actor.id,
-            note: input.notes?.trim() || null,
+            note,
             reasonCode: "warehouse_intake",
             refType: "stock_intake_batch",
             refId: batch.id,
-          },
+          })),
         });
       }
-    }
-  });
+    },
+    { timeout: INTAKE_TX_TIMEOUT_MS, maxWait: 20_000 },
+  );
 
   await writeAuditLog({
     actorUserId: actor.id,
     action: "stock.intake",
     objectType: "stock_intake_batch",
     objectId: batchId,
-    summary: `${actor.name} intaked ${createdIds.length} unit(s) into batch "${label}".`,
+    summary: `${actor.name} intaked ${createdCount} unit(s) into batch "${label}".`,
     ip: meta?.ip,
     userAgent: meta?.userAgent,
   });
 
   return {
-    created: createdIds.length,
-    skipped: preview.total - createdIds.length,
+    created: createdCount,
+    skipped: preview.total - createdCount,
     batchId,
     batchLabel: label,
     preview,
