@@ -67,7 +67,7 @@ export async function ensureStockItemTypes(): Promise<number> {
         description: seed.description,
         enabled: seed.enabled,
         sortOrder: seed.sortOrder,
-        ...(attributesSchema ? { attributesSchema } : {}),
+        attributesSchema: attributesSchema ?? Prisma.DbNull,
       },
     });
     upserted += 1;

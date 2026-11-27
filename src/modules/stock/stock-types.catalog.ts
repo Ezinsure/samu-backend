@@ -11,21 +11,6 @@ export type StockItemTypeSeed = {
   attributesSchema?: StockAttributesSchema;
 };
 
-const ROUTER_ATTRIBUTES: StockAttributesSchema = {
-  fields: [
-    {
-      key: "category",
-      label: "Category",
-      type: "select",
-      required: true,
-      options: [
-        { value: "HBB", label: "HBB — Home Broadband" },
-        { value: "OBB", label: "OBB — Office Broadband" },
-      ],
-    },
-  ],
-};
-
 const SMARTPHONE_ATTRIBUTES: StockAttributesSchema = {
   fields: [
     {
@@ -57,10 +42,9 @@ export const STOCK_ITEM_TYPE_CATALOG: StockItemTypeSeed[] = [
     key: "router",
     label: "Router",
     description:
-      "Broadband routers tracked by category (HBB / OBB) through intake, assignment, sale, and returns.",
+      "Broadband routers tracked through intake, assignment, sale, and returns.",
     sortOrder: 20,
     enabled: true,
-    attributesSchema: ROUTER_ATTRIBUTES,
   },
   {
     key: "smartphone",
