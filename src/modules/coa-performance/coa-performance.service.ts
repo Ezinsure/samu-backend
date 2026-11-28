@@ -13,6 +13,7 @@ import {
   normalizeClientForVariant,
   type NormalizedClientRow,
 } from "../coa-metrics/coa-metric-variants.service.js";
+import { bindSerialFromHolderBalance } from "../stock/stock-balance.service.js";
 import {
   assertUnitSetMatchesVariant,
   consumeUnits,
@@ -641,12 +642,18 @@ export async function createEntry(
     });
   }
 
-  // Internet variants require serials from the logger's in-hand stock.
+  // Internet variants: SIM may be free-text (quantity pool); routers still need stock pick.
   if (metric.key === "internet_subscriptions" && resolvedVariantKey) {
     for (const [index, client] of normalized.entries()) {
-      if (!client.stockUnitIds.length) {
+      if (resolvedVariantKey === "sim") {
+        if (!client.stockUnitIds.length && !client.simNumber?.trim()) {
+          throw errors.badRequest(
+            `Client ${index + 1}: enter the SIM serial sold to this customer`,
+          );
+        }
+      } else if (!client.stockUnitIds.length) {
         throw errors.badRequest(
-          `Client ${index + 1}: pick device serial(s) from your stock`,
+          `Client ${index + 1}: pick the router serial from your stock`,
         );
       }
     }
@@ -707,40 +714,83 @@ export async function createEntry(
         });
       }
 
-      if (
-        metric.key === "internet_subscriptions" &&
-        resolvedVariantKey &&
-        client.stockUnitIds.length > 0
-      ) {
-        const units = await tx.stockUnit.findMany({
-          where: { id: { in: client.stockUnitIds } },
-          include: { type: true },
-        });
-        assertUnitSetMatchesVariant(units, resolvedVariantKey);
-        // Fill serial fields from stock when picker ids are provided.
-        const sim = units.find((u) => u.type.key === "sim_4g");
-        const router = units.find((u) => u.type.key.startsWith("router_"));
-        await tx.coaEvidenceClient.update({
-          where: { id: row.id },
-          data: {
-            simNumber: sim?.serial ?? row.simNumber,
+      if (metric.key === "internet_subscriptions" && resolvedVariantKey) {
+        const stockUnitIds = [...client.stockUnitIds];
+        let simSerial = client.simNumber?.trim() || "";
+
+        const pickedUnits =
+          stockUnitIds.length > 0
+            ? await tx.stockUnit.findMany({
+                where: { id: { in: stockUnitIds } },
+                include: { type: true },
+              })
+            : [];
+        const alreadyHasSim = pickedUnits.some((u) => u.type.key === "sim_4g");
+
+        if (simSerial && !alreadyHasSim) {
+          const simType = await tx.stockItemType.findUnique({
+            where: { key: "sim_4g" },
+          });
+          if (simType?.trackingMode === "quantity") {
+            const bound = await bindSerialFromHolderBalance(tx, {
+              type: simType,
+              holderUserId: actor.id,
+              serial: simSerial,
+              actor,
+              refType: "coa_evidence_client",
+              refId: row.id,
+              note: `${metric.label} · ${resolvedVariantKey}`,
+            });
+            stockUnitIds.push(bound.id);
+            simSerial = bound.serial;
+          }
+        }
+
+        if (stockUnitIds.length > 0) {
+          const units = await tx.stockUnit.findMany({
+            where: { id: { in: stockUnitIds } },
+            include: { type: true },
+          });
+          if (resolvedVariantKey === "sim") {
+            if (!units.some((u) => u.type.key === "sim_4g")) {
+              throw errors.badRequest("SIM serial could not be bound from stock");
+            }
+          } else {
+            assertUnitSetMatchesVariant(units, resolvedVariantKey);
+          }
+          const sim = units.find((u) => u.type.key === "sim_4g");
+          const router = units.find(
+            (u) =>
+              u.type.key === "router" || u.type.key.startsWith("router_"),
+          );
+          await tx.coaEvidenceClient.update({
+            where: { id: row.id },
             data: {
-              ...((client.data as Record<string, unknown> | null) ?? {}),
-              ...(router ? { routerSerial: router.serial } : {}),
-              ...(sim && resolvedVariantKey !== "sim"
-                ? { fourGNumber: sim.serial }
-                : {}),
-            } as Prisma.InputJsonValue,
-          },
-        });
-        await consumeUnits(tx, {
-          unitIds: client.stockUnitIds,
-          actor,
-          refType: "coa_evidence_client",
-          refId: row.id,
-          requiredHolderId: actor.id,
-          note: `${metric.label} · ${resolvedVariantKey}`,
-        });
+              simNumber: sim?.serial ?? (simSerial || row.simNumber),
+              stockUnitIds,
+              data: {
+                ...((client.data as Record<string, unknown> | null) ?? {}),
+                ...(router ? { routerSerial: router.serial } : {}),
+                ...(sim && resolvedVariantKey !== "sim"
+                  ? { fourGNumber: sim.serial }
+                  : {}),
+              } as Prisma.InputJsonValue,
+            },
+          });
+          const toConsume = units
+            .filter((u) => u.status !== "sold")
+            .map((u) => u.id);
+          if (toConsume.length > 0) {
+            await consumeUnits(tx, {
+              unitIds: toConsume,
+              actor,
+              refType: "coa_evidence_client",
+              refId: row.id,
+              requiredHolderId: actor.id,
+              note: `${metric.label} · ${resolvedVariantKey}`,
+            });
+          }
+        }
       }
     }
 

@@ -5,6 +5,7 @@ import { logger } from "../../lib/logger.js";
 import { prisma } from "../../lib/prisma.js";
 import { isNationalReader } from "../../lib/tc-scope.js";
 import type { AuthUser } from "../../types/express.js";
+import { bindSerialFromHolderBalance } from "../stock/stock-balance.service.js";
 import { consumeUnits, restoreUnitsForRef } from "../stock/stock-sales.service.js";
 import type { SaleInput, SaleListQuery } from "./sales.schemas.js";
 
@@ -201,19 +202,42 @@ export async function createSale(
   const tcUserId = await resolveTcUserId(input, viewer);
   await assertOptionalRefs(input.leadId, input.onboardingId);
 
-  if (input.productCategory === "internet_4g" && !input.simStockUnitId) {
+  if (
+    input.productCategory === "internet_4g" &&
+    !input.simStockUnitId &&
+    !input.simSerial?.trim()
+  ) {
     throw errors.badRequest(
-      "Select a 4G SIM from your stock for internet sales",
+      "Enter the 4G SIM serial sold to this customer",
     );
   }
 
-  const unitIds = [
-    input.simStockUnitId,
-    input.routerStockUnitId,
-  ].filter((id): id is string => Boolean(id));
-
   const id = `sale-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
   const row = await prisma.$transaction(async (tx) => {
+    let simStockUnitId = input.simStockUnitId ?? null;
+
+    if (input.simSerial?.trim() && !simStockUnitId) {
+      const simType = await tx.stockItemType.findUnique({
+        where: { key: "sim_4g" },
+      });
+      if (!simType) throw errors.badRequest("4G SIM type is not configured");
+      const unit = await bindSerialFromHolderBalance(tx, {
+        type: simType,
+        holderUserId: tcUserId,
+        serial: input.simSerial,
+        actor: viewer,
+        refType: "sale",
+        refId: id,
+        note: `Sale ${input.productName.trim()}`,
+      });
+      simStockUnitId = unit.id;
+    }
+
+    const unitIds = [
+      simStockUnitId && !input.simSerial?.trim() ? simStockUnitId : null,
+      input.routerStockUnitId,
+    ].filter((uid): uid is string => Boolean(uid));
+
     const created = await tx.sale.create({
       data: {
         id,
@@ -234,7 +258,7 @@ export async function createSale(
         geoSector: input.geo.sector,
         soldAt: new Date(input.soldAt),
         notes: input.notes?.trim() || null,
-        simStockUnitId: input.simStockUnitId ?? null,
+        simStockUnitId,
         routerStockUnitId: input.routerStockUnitId ?? null,
       },
       include: { tcUser: { select: { name: true } } },

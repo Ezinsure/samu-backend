@@ -1,3 +1,4 @@
+import type { StockTrackingMode } from "@prisma/client";
 import type { StockAttributesSchema } from "./stock-attributes.js";
 
 /** Default serialised device types seeded for internet + device stock. */
@@ -7,6 +8,7 @@ export type StockItemTypeSeed = {
   description: string;
   sortOrder: number;
   enabled: boolean;
+  trackingMode?: StockTrackingMode;
   /** Optional per-unit attribute schema (brand/model, etc.). */
   attributesSchema?: StockAttributesSchema;
 };
@@ -34,9 +36,11 @@ export const STOCK_ITEM_TYPE_CATALOG: StockItemTypeSeed[] = [
   {
     key: "sim_4g",
     label: "4G SIM",
-    description: "Mobile / partner 4G SIM cards used for internet activations.",
+    description:
+      "Mobile / partner 4G SIM cards tracked by quantity until sold (serial captured at sale).",
     sortOrder: 10,
     enabled: true,
+    trackingMode: "quantity",
   },
   {
     key: "router",
@@ -45,6 +49,7 @@ export const STOCK_ITEM_TYPE_CATALOG: StockItemTypeSeed[] = [
       "Broadband routers tracked through intake, assignment, sale, and returns.",
     sortOrder: 20,
     enabled: true,
+    trackingMode: "serialized",
   },
   {
     key: "smartphone",
@@ -53,6 +58,7 @@ export const STOCK_ITEM_TYPE_CATALOG: StockItemTypeSeed[] = [
       "Handsets tracked by brand and model through intake, assignment, sale, and returns.",
     sortOrder: 40,
     enabled: true,
+    trackingMode: "serialized",
     attributesSchema: SMARTPHONE_ATTRIBUTES,
   },
 ];

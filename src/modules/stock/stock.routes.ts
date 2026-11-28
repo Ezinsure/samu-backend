@@ -10,6 +10,7 @@ import {
   confirmFaultySchema,
   confirmReturnSchema,
   createAssignmentSchema,
+  createQuantityReturnSchema,
   createReturnSchema,
   createStockTypeSchema,
   customerReturnSchema,
@@ -23,6 +24,7 @@ import {
   listTransfersQuerySchema,
   listUnitsQuerySchema,
   previewIntakeSchema,
+  respondQuantityAssignmentSchema,
   respondTransferSchema,
   updateReturnSchema,
   updateStockTypeSchema,
@@ -34,6 +36,11 @@ import * as reports from "./stock-reports.service.js";
 import * as transfers from "./stock-transfers.service.js";
 import * as intakeBatches from "./stock-intake-batches.service.js";
 import * as faulty from "./stock-faulty.service.js";
+import {
+  getAvailableQuantity,
+  listBalancesForOverview,
+} from "./stock-balance.service.js";
+import { prisma } from "../../lib/prisma.js";
 
 export const stockRouter = Router();
 
@@ -658,3 +665,122 @@ stockRouter.post(
     }
   },
 );
+
+stockRouter.post(
+  "/transfers/:id/respond-quantity",
+  requireWrite,
+  writeLimiter,
+  async (req, res, next) => {
+    try {
+      if (!req.user) throw errors.unauthorized();
+      const body = respondQuantityAssignmentSchema.parse(req.body);
+      const data = await transfers.respondQuantityAssignment(
+        String(req.params.id),
+        body,
+        req.user,
+        meta(req),
+      );
+      res.json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+stockRouter.post(
+  "/transfers/quantity-returns",
+  requireWrite,
+  writeLimiter,
+  async (req, res, next) => {
+    try {
+      if (!req.user) throw errors.unauthorized();
+      const body = createQuantityReturnSchema.parse(req.body);
+      const data = await transfers.createQuantityReturn(
+        body,
+        req.user,
+        meta(req),
+      );
+      res.status(201).json({ data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+stockRouter.get("/balances", async (req, res, next) => {
+  try {
+    if (!req.user) throw errors.unauthorized();
+    const typeKey =
+      typeof req.query.typeKey === "string" ? req.query.typeKey.trim() : "";
+    const mine = req.query.mine === "true";
+    const types = await prisma.stockItemType.findMany({
+      where: {
+        enabled: true,
+        trackingMode: "quantity",
+        ...(typeKey ? { key: typeKey } : {}),
+      },
+      orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
+    });
+
+    const rows = [];
+    for (const type of types) {
+      if (mine || req.user.role !== "ADMIN") {
+        const available = await getAvailableQuantity(
+          prisma,
+          type.id,
+          req.user.id,
+        );
+        rows.push({
+          type: {
+            id: type.id,
+            key: type.key,
+            label: type.label,
+            trackingMode: type.trackingMode,
+          },
+          holderUserId: req.user.id,
+          quantity: available,
+          scope: "mine" as const,
+        });
+      } else {
+        const warehouse = await getAvailableQuantity(prisma, type.id, null);
+        rows.push({
+          type: {
+            id: type.id,
+            key: type.key,
+            label: type.label,
+            trackingMode: type.trackingMode,
+          },
+          holderUserId: null,
+          quantity: warehouse,
+          scope: "warehouse" as const,
+        });
+      }
+    }
+
+    // Admin overview of all holder balances when not mine-scoped.
+    if (req.user.role === "ADMIN" && !mine && !typeKey) {
+      const all = await listBalancesForOverview();
+      res.json({
+        data: {
+          summary: rows,
+          balances: all.map((b) => ({
+            id: b.id,
+            type: b.type,
+            holder: b.holder,
+            quantity: b.quantity,
+            reservedQuantity: b.reservedQuantity,
+            available:
+              b.holderUserId == null
+                ? Math.max(0, b.quantity - b.reservedQuantity)
+                : b.quantity,
+          })),
+        },
+      });
+      return;
+    }
+
+    res.json({ data: rows });
+  } catch (error) {
+    next(error);
+  }
+});

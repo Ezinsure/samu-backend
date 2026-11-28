@@ -8,6 +8,10 @@ import {
   parseAttributesSchema,
 } from "./stock-attributes.js";
 import {
+  creditBalance,
+  isQuantityTracked,
+} from "./stock-balance.service.js";
+import {
   LEGACY_ROUTER_TYPE_KEYS,
   STOCK_ITEM_TYPE_CATALOG,
 } from "./stock-types.catalog.js";
@@ -64,6 +68,7 @@ export async function ensureStockItemTypes(): Promise<number> {
     const attributesSchema = seed.attributesSchema
       ? (seed.attributesSchema as unknown as Prisma.InputJsonValue)
       : undefined;
+    const trackingMode = seed.trackingMode ?? "serialized";
     await prisma.stockItemType.upsert({
       where: { key: seed.key },
       create: {
@@ -72,6 +77,7 @@ export async function ensureStockItemTypes(): Promise<number> {
         description: seed.description,
         enabled: seed.enabled,
         sortOrder: seed.sortOrder,
+        trackingMode,
         ...(attributesSchema ? { attributesSchema } : {}),
       },
       update: {
@@ -79,6 +85,7 @@ export async function ensureStockItemTypes(): Promise<number> {
         description: seed.description,
         enabled: seed.enabled,
         sortOrder: seed.sortOrder,
+        trackingMode,
         attributesSchema: attributesSchema ?? Prisma.DbNull,
       },
     });
@@ -101,6 +108,7 @@ function toPublicType(row: {
   description: string | null;
   enabled: boolean;
   sortOrder: number;
+  trackingMode?: "serialized" | "quantity";
   lowStockThreshold?: number;
   attributesSchema?: Prisma.JsonValue | null;
   updatedAt: Date;
@@ -114,6 +122,7 @@ function toPublicType(row: {
     description: row.description ?? undefined,
     enabled: row.enabled,
     sortOrder: row.sortOrder,
+    trackingMode: row.trackingMode ?? "serialized",
     lowStockThreshold: row.lowStockThreshold ?? 10,
     attributesSchema: fields.length ? { fields } : undefined,
     unitCount: row._count?.units ?? 0,
@@ -293,25 +302,79 @@ export async function getOverview(actor: AuthUser) {
   // Keep orphaned typeIds (disabled) out of overview cards but include in total via byStatus.
   void typeMap;
 
+  // Quantity-tracked pools (SIMs) contribute to warehouse / with_holder totals.
+  const balances = await prisma.stockBalance.findMany({
+    where: { type: { trackingMode: "quantity", enabled: true } },
+    include: { type: { select: { id: true, key: true, label: true } } },
+  });
+  let qtyWarehouse = 0;
+  let qtyWithHolder = 0;
+  const qtyByTypeId = new Map<string, { warehouse: number; withHolder: number }>();
+  for (const bal of balances) {
+    const available =
+      bal.holderUserId == null
+        ? Math.max(0, bal.quantity - bal.reservedQuantity)
+        : Math.max(0, bal.quantity);
+    const reserved =
+      bal.holderUserId == null ? Math.max(0, bal.reservedQuantity) : 0;
+    if (bal.holderUserId == null) {
+      qtyWarehouse += available;
+    } else {
+      qtyWithHolder += available;
+    }
+    const bucket = qtyByTypeId.get(bal.typeId) ?? {
+      warehouse: 0,
+      withHolder: 0,
+    };
+    if (bal.holderUserId == null) bucket.warehouse += available;
+    else bucket.withHolder += available;
+    qtyByTypeId.set(bal.typeId, bucket);
+    // Pending quantity assignments sit in reserved warehouse stock → in_transit.
+    void reserved;
+  }
+
+  const qtyInTransit = balances
+    .filter((b) => b.holderUserId == null)
+    .reduce((sum, b) => sum + Math.max(0, b.reservedQuantity), 0);
+
+  const byTypeWithQty = byType.map((row) => {
+    const q = qtyByTypeId.get(row.type.id);
+    if (!q) return row;
+    return {
+      ...row,
+      total: row.total + q.warehouse + q.withHolder,
+      byStatus: {
+        ...row.byStatus,
+        in_warehouse: (row.byStatus.in_warehouse ?? 0) + q.warehouse,
+        with_holder: (row.byStatus.with_holder ?? 0) + q.withHolder,
+      },
+      quantityBalance: {
+        warehouse: q.warehouse,
+        withHolder: q.withHolder,
+      },
+    };
+  });
+
   return {
-    total,
+    total: total + qtyWarehouse + qtyWithHolder + qtyInTransit,
     byStatus: {
-      in_warehouse: byStatus.in_warehouse ?? 0,
-      in_transit: byStatus.in_transit ?? 0,
-      with_holder: byStatus.with_holder ?? 0,
+      in_warehouse: (byStatus.in_warehouse ?? 0) + qtyWarehouse,
+      in_transit: (byStatus.in_transit ?? 0) + qtyInTransit,
+      with_holder: (byStatus.with_holder ?? 0) + qtyWithHolder,
       sold: byStatus.sold ?? 0,
       returned_by_customer: byStatus.returned_by_customer ?? 0,
       damaged: byStatus.damaged ?? 0,
       returned_to_supplier: byStatus.returned_to_supplier ?? 0,
       written_off: byStatus.written_off ?? 0,
     },
-    byType,
+    byType: byTypeWithQty,
   };
 }
 
 type IntakeLine = {
   typeKey: string;
-  serials: string[];
+  serials?: string[];
+  quantity?: number;
   condition?: string;
   attributes?: Record<string, string>;
 };
@@ -319,6 +382,7 @@ type IntakeLine = {
 function resolveIntakeLines(input: {
   typeKey?: string;
   serials?: string[];
+  quantity?: number;
   condition?: string;
   attributes?: Record<string, string>;
   lines?: IntakeLine[];
@@ -327,7 +391,8 @@ function resolveIntakeLines(input: {
   return [
     {
       typeKey: input.typeKey!,
-      serials: input.serials!,
+      serials: input.serials,
+      quantity: input.quantity,
       condition: input.condition,
       attributes: input.attributes,
     },
@@ -349,6 +414,24 @@ export async function previewIntake(input: PreviewIntakeInput, actor: AuthUser) 
     }
   }
 
+  for (const line of lines) {
+    const type = typeByKey.get(line.typeKey)!;
+    if (isQuantityTracked(type)) {
+      if (!line.quantity || line.quantity < 1) {
+        throw errors.badRequest(
+          `${type.label} intake requires a quantity (serials are captured at sale)`,
+        );
+      }
+      if (line.serials?.length) {
+        throw errors.badRequest(
+          `${type.label} is quantity-tracked — omit serials and provide quantity`,
+        );
+      }
+    } else if (!line.serials?.length) {
+      throw errors.badRequest(`${type.label} intake requires serial numbers`);
+    }
+  }
+
   const seenGlobal = new Set<string>();
   const rows: Array<{
     serial: string;
@@ -356,10 +439,15 @@ export async function previewIntake(input: PreviewIntakeInput, actor: AuthUser) 
     status: "ready" | "invalid" | "duplicate_in_file" | "exists";
     reason?: string;
   }> = [];
+  let quantityReady = 0;
 
   for (const line of lines) {
     const type = typeByKey.get(line.typeKey)!;
-    for (const raw of line.serials) {
+    if (isQuantityTracked(type)) {
+      quantityReady += line.quantity ?? 0;
+      continue;
+    }
+    for (const raw of line.serials ?? []) {
       const serial = normalizeSerial(raw);
       const dedupeKey = `${type.id}:${serial}`;
       if (serial.length < 3) {
@@ -386,6 +474,7 @@ export async function previewIntake(input: PreviewIntakeInput, actor: AuthUser) 
   }
 
   for (const type of types) {
+    if (isQuantityTracked(type)) continue;
     const readySerials = rows
       .filter((r) => r.status === "ready" && r.typeKey === type.key)
       .map((r) => r.serial);
@@ -407,13 +496,15 @@ export async function previewIntake(input: PreviewIntakeInput, actor: AuthUser) 
     }
   }
 
+  const serialReady = rows.filter((r) => r.status === "ready").length;
   const primary = types[0];
   return {
     type: primary
       ? { id: primary.id, key: primary.key, label: primary.label }
       : { id: "", key: "", label: "" },
-    total: rows.length,
-    ready: rows.filter((r) => r.status === "ready").length,
+    total: rows.length + quantityReady,
+    ready: serialReady + quantityReady,
+    quantityReady,
     invalid: rows.filter((r) => r.status === "invalid").length,
     duplicates: rows.filter((r) => r.status === "duplicate_in_file").length,
     exists: rows.filter((r) => r.status === "exists").length,
@@ -442,17 +533,23 @@ export async function intakeUnits(
 
   const prepared = lines.map((line, index) => {
     const type = typeByKey.get(line.typeKey)!;
-    const attributes = normalizeUnitAttributes(
-      type.attributesSchema,
-      line.attributes,
-      `Line ${index + 1}`,
-    );
+    const attributes = isQuantityTracked(type)
+      ? null
+      : normalizeUnitAttributes(
+          type.attributesSchema,
+          line.attributes,
+          `Line ${index + 1}`,
+        );
     return { line, type, attributes };
   });
 
   const preview = await previewIntake(
     {
-      lines: lines.map((l) => ({ typeKey: l.typeKey, serials: l.serials })),
+      lines: lines.map((l) => ({
+        typeKey: l.typeKey,
+        serials: l.serials,
+        quantity: l.quantity,
+      })),
     },
     actor,
   );
@@ -461,8 +558,11 @@ export async function intakeUnits(
       .filter((r) => r.status === "ready")
       .map((r) => `${r.typeKey}:${r.serial}`),
   );
-  if (readyKeys.size === 0) {
-    throw errors.badRequest("No new serials to intake");
+  const quantityTotal = prepared
+    .filter(({ type }) => isQuantityTracked(type))
+    .reduce((sum, { line }) => sum + (line.quantity ?? 0), 0);
+  if (readyKeys.size === 0 && quantityTotal === 0) {
+    throw errors.badRequest("Nothing to intake");
   }
 
   const receivedAt = input.receivedAt
@@ -484,9 +584,10 @@ export async function intakeUnits(
 
   const unitPayloads: Prisma.StockUnitCreateManyInput[] = [];
   for (const { line, type, attributes } of prepared) {
+    if (isQuantityTracked(type)) continue;
     const condition =
       line.condition?.trim() || input.condition?.trim() || null;
-    for (const raw of line.serials) {
+    for (const raw of line.serials ?? []) {
       const serial = normalizeSerial(raw);
       if (!readyKeys.has(`${type.key}:${serial}`)) continue;
       unitPayloads.push({
@@ -500,10 +601,6 @@ export async function intakeUnits(
           : undefined,
       });
     }
-  }
-
-  if (unitPayloads.length === 0) {
-    throw errors.badRequest("No new serials to intake");
   }
 
   let batchId = "";
@@ -522,34 +619,75 @@ export async function intakeUnits(
       });
       batchId = batch.id;
 
-      const withBatch = unitPayloads.map((row) => ({
-        ...row,
-        intakeBatchId: batch.id,
-      }));
-
-      const createdIds: string[] = [];
-      for (const chunk of chunkArray(withBatch, INTAKE_INSERT_CHUNK)) {
-        const created = await tx.stockUnit.createManyAndReturn({
-          data: chunk,
-          select: { id: true },
+      for (const { line, type } of prepared) {
+        if (!isQuantityTracked(type)) continue;
+        const qty = line.quantity ?? 0;
+        if (qty < 1) continue;
+        await tx.stockIntakeBatchLine.create({
+          data: {
+            batchId: batch.id,
+            typeId: type.id,
+            quantity: qty,
+            condition:
+              line.condition?.trim() || input.condition?.trim() || null,
+          },
         });
-        for (const row of created) createdIds.push(row.id);
+        await creditBalance(tx, {
+          typeId: type.id,
+          holderUserId: null,
+          quantity: qty,
+          kind: "intake",
+          actorUserId: actor.id,
+          toHolderId: null,
+          reasonCode: "warehouse_intake",
+          note: input.notes?.trim() || null,
+          refType: "stock_intake_batch",
+          refId: batch.id,
+        });
+        createdCount += qty;
       }
-      createdCount = createdIds.length;
 
-      const note = input.notes?.trim() || null;
-      for (const chunk of chunkArray(createdIds, INTAKE_INSERT_CHUNK)) {
-        await tx.stockMovement.createMany({
-          data: chunk.map((unitId) => ({
-            unitId,
-            type: "intake" as const,
-            actorUserId: actor.id,
-            note,
-            reasonCode: "warehouse_intake",
-            refType: "stock_intake_batch",
-            refId: batch.id,
-          })),
-        });
+      if (unitPayloads.length > 0) {
+        const withBatch = unitPayloads.map((row) => ({
+          ...row,
+          intakeBatchId: batch.id,
+        }));
+
+        const createdIds: string[] = [];
+        for (const chunk of chunkArray(withBatch, INTAKE_INSERT_CHUNK)) {
+          const created = await tx.stockUnit.createManyAndReturn({
+            data: chunk,
+            select: { id: true },
+          });
+          for (const row of created) createdIds.push(row.id);
+        }
+        createdCount += createdIds.length;
+
+        const note = input.notes?.trim() || null;
+        for (const chunk of chunkArray(createdIds, INTAKE_INSERT_CHUNK)) {
+          await tx.stockMovement.createMany({
+            data: chunk.map((unitId) => ({
+              unitId,
+              type: "intake" as const,
+              actorUserId: actor.id,
+              note,
+              reasonCode: "warehouse_intake",
+              refType: "stock_intake_batch",
+              refId: batch.id,
+            })),
+          });
+        }
+
+        // Aggregate serialized intake as batch lines for composition reports.
+        const byType = new Map<string, number>();
+        for (const row of unitPayloads) {
+          byType.set(row.typeId, (byType.get(row.typeId) ?? 0) + 1);
+        }
+        for (const [typeId, quantity] of byType) {
+          await tx.stockIntakeBatchLine.create({
+            data: { batchId: batch.id, typeId, quantity },
+          });
+        }
       }
     },
     { timeout: INTAKE_TX_TIMEOUT_MS, maxWait: 20_000 },
@@ -567,7 +705,7 @@ export async function intakeUnits(
 
   return {
     created: createdCount,
-    skipped: preview.total - createdCount,
+    skipped: Math.max(0, preview.total - createdCount),
     batchId,
     batchLabel: label,
     preview,
@@ -823,19 +961,56 @@ export async function getMyStockOverview(actor: AuthUser) {
     },
   });
 
+  // Quantity-tracked pools held by this user (e.g. SIMs on hand).
+  const holderBalances = await prisma.stockBalance.findMany({
+    where: {
+      holderUserId: actor.id,
+      quantity: { gt: 0 },
+      type: { trackingMode: "quantity", enabled: true },
+    },
+    include: { type: { select: { id: true, key: true, label: true } } },
+  });
+  let qtyHeld = 0;
+  const quantityBalances = holderBalances.map((bal) => {
+    qtyHeld += bal.quantity;
+    return {
+      type: bal.type,
+      quantity: bal.quantity,
+    };
+  });
+
+  const byTypeWithQty = [...byType];
+  for (const bal of holderBalances) {
+    const existing = byTypeWithQty.find((row) => row.type.id === bal.typeId);
+    if (existing) {
+      existing.total += bal.quantity;
+      existing.byStatus = {
+        ...existing.byStatus,
+        with_holder: (existing.byStatus.with_holder ?? 0) + bal.quantity,
+      };
+    } else {
+      byTypeWithQty.push({
+        type: bal.type,
+        total: bal.quantity,
+        byStatus: { with_holder: bal.quantity },
+      });
+    }
+  }
+
   return {
-    total,
+    total: total + qtyHeld,
     byStatus: {
       in_warehouse: byStatus.in_warehouse ?? 0,
       in_transit: byStatus.in_transit ?? 0,
-      with_holder: byStatus.with_holder ?? 0,
+      with_holder: (byStatus.with_holder ?? 0) + qtyHeld,
       sold: byStatus.sold ?? 0,
       returned_by_customer: byStatus.returned_by_customer ?? 0,
       damaged: byStatus.damaged ?? 0,
       returned_to_supplier: byStatus.returned_to_supplier ?? 0,
       written_off: byStatus.written_off ?? 0,
     },
-    byType,
+    byType: byTypeWithQty,
+    quantityBalances,
     pendingIncoming,
   };
 }

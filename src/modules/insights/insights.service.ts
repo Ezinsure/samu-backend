@@ -5,6 +5,11 @@ import type {
 } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
+import {
+  listDistricts,
+  listProvinces,
+  listSectors,
+} from "../../lib/rwanda-locations.js";
 import { SERVICE_LINES } from "../../lib/service-lines.js";
 import { isNationalReader } from "../../lib/tc-scope.js";
 import type { AuthUser } from "../../types/express.js";
@@ -341,24 +346,28 @@ export async function getCoapDashboard(
 }
 
 /**
- * Shared filter dropdown options for COAP create forms (TC-scoped geo + coordinators).
+ * Shared filter dropdown options for COAP create forms.
+ * Geography comes from the canonical Rwanda locations dataset.
  */
 export async function getCoapFilterOptions(
   viewer: AuthUser,
 ): Promise<CoapFilterOptions> {
   const scope = scopeWhere(viewer);
-  const empty: CoapFilterOptions = {
-    provinces: ["Kigali City", "Southern Province"],
-    districts: ["Gasabo", "Kicukiro", "Nyarugenge", "Huye", "Muhanga"],
-    sectors: [
-      "Remera",
-      "Kimironko",
-      "Kanombe",
-      "Nyamirambo",
-      "Gikondo",
-      "Ngoma",
-      "Nyamabuye",
-    ],
+  const provinces = listProvinces().map((p) => p.name);
+  const districts = listDistricts().map((d) => d.name);
+  // Full sector list is large; include a representative set for legacy consumers.
+  // Cascading GeoFields now resolve sectors client-side from the dataset.
+  const sectors = listProvinces()
+    .flatMap((p) =>
+      p.districts.flatMap((d) => listSectors(d.name, p.name).map((s) => s.name)),
+    )
+    .filter((name, index, all) => all.indexOf(name) === index)
+    .sort((a, b) => a.localeCompare(b));
+
+  const catalog: CoapFilterOptions = {
+    provinces,
+    districts,
+    sectors,
     coordinators: [],
     serviceLines: SERVICE_LINES.map((item) => ({
       id: item.id,
@@ -367,40 +376,17 @@ export async function getCoapFilterOptions(
   };
 
   if (scope === null) {
-    return empty;
+    return catalog;
   }
 
-  const [leadGeos, coordinators] = await Promise.all([
-    prisma.lead.findMany({
-      where: scope,
-      select: {
-        geoProvince: true,
-        geoDistrict: true,
-        geoSector: true,
-      },
-    }),
-    prisma.user.findMany({
-      where: { role: "TERRITORY_COORDINATOR", status: "active" },
-      select: { id: true, name: true },
-      orderBy: { name: "asc" },
-    }),
-  ]);
-
-  const provinces = Array.from(
-    new Set(leadGeos.map((r) => r.geoProvince)),
-  ).sort();
-  const districts = Array.from(
-    new Set(leadGeos.map((r) => r.geoDistrict)),
-  ).sort();
-  const sectors = Array.from(
-    new Set(leadGeos.map((r) => r.geoSector)),
-  ).sort();
+  const coordinators = await prisma.user.findMany({
+    where: { role: "TERRITORY_COORDINATOR", status: "active" },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
 
   return {
-    provinces: provinces.length > 0 ? provinces : empty.provinces,
-    districts: districts.length > 0 ? districts : empty.districts,
-    sectors: sectors.length > 0 ? sectors : empty.sectors,
+    ...catalog,
     coordinators,
-    serviceLines: empty.serviceLines,
   };
 }
