@@ -75,18 +75,33 @@ const unitAttributesSchema = z
   .record(z.string().trim().min(1).max(80), z.string().trim().max(120))
   .optional();
 
-const intakeLineSchema = z.object({
-  typeKey: z.string().trim().min(2).max(60),
-  serials: z.array(serialSchema).min(1).max(1000),
-  condition: z.string().trim().max(80).optional(),
-  attributes: unitAttributesSchema,
-});
+const intakeLineSchema = z
+  .object({
+    typeKey: z.string().trim().min(2).max(60),
+    serials: z.array(serialSchema).max(1000).optional(),
+    /** Quantity-tracked types (e.g. SIMs) use quantity instead of serials. */
+    quantity: z.number().int().min(1).max(100_000).optional(),
+    condition: z.string().trim().max(80).optional(),
+    attributes: unitAttributesSchema,
+  })
+  .superRefine((value, ctx) => {
+    const hasSerials = Boolean(value.serials?.length);
+    const hasQty = Boolean(value.quantity);
+    if (hasSerials === hasQty) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide either serials or quantity for each line",
+        path: ["serials"],
+      });
+    }
+  });
 
 export const intakeUnitsSchema = z
   .object({
     /** Single-line shorthand (legacy). Prefer `lines` for multi brand/model. */
     typeKey: z.string().trim().min(2).max(60).optional(),
     serials: z.array(serialSchema).min(1).max(1000).optional(),
+    quantity: z.number().int().min(1).max(100_000).optional(),
     condition: z.string().trim().max(80).optional(),
     attributes: unitAttributesSchema,
     notes: z.string().trim().max(2000).optional(),
@@ -100,10 +115,12 @@ export const intakeUnitsSchema = z
   })
   .superRefine((value, ctx) => {
     if (value.lines && value.lines.length > 0) return;
-    if (!value.typeKey || !value.serials?.length) {
+    const hasSerials = Boolean(value.typeKey && value.serials?.length);
+    const hasQty = Boolean(value.typeKey && value.quantity);
+    if (!hasSerials && !hasQty) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Provide typeKey and serials, or a lines array",
+        message: "Provide typeKey with serials or quantity, or a lines array",
       });
     }
   });
@@ -112,12 +129,28 @@ export const previewIntakeSchema = z
   .object({
     typeKey: z.string().trim().min(2).max(60).optional(),
     serials: z.array(z.string().trim().min(1).max(120)).min(1).max(1000).optional(),
+    quantity: z.number().int().min(1).max(100_000).optional(),
     lines: z
       .array(
-        z.object({
-          typeKey: z.string().trim().min(2).max(60),
-          serials: z.array(z.string().trim().min(1).max(120)).min(1).max(1000),
-        }),
+        z
+          .object({
+            typeKey: z.string().trim().min(2).max(60),
+            serials: z
+              .array(z.string().trim().min(1).max(120))
+              .max(1000)
+              .optional(),
+            quantity: z.number().int().min(1).max(100_000).optional(),
+          })
+          .superRefine((value, ctx) => {
+            const hasSerials = Boolean(value.serials?.length);
+            const hasQty = Boolean(value.quantity);
+            if (hasSerials === hasQty) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "Provide either serials or quantity for each line",
+              });
+            }
+          }),
       )
       .min(1)
       .max(50)
@@ -125,10 +158,12 @@ export const previewIntakeSchema = z
   })
   .superRefine((value, ctx) => {
     if (value.lines && value.lines.length > 0) return;
-    if (!value.typeKey || !value.serials?.length) {
+    const hasSerials = Boolean(value.typeKey && value.serials?.length);
+    const hasQty = Boolean(value.typeKey && value.quantity);
+    if (!hasSerials && !hasQty) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Provide typeKey and serials, or a lines array",
+        message: "Provide typeKey with serials or quantity, or a lines array",
       });
     }
   });
@@ -164,7 +199,7 @@ export const createAssignmentSchema = z
     toUserId: z.string().trim().min(1),
     unitIds: z.array(z.string().trim().min(1)).min(1).max(200).optional(),
     typeKey: z.string().trim().min(2).max(60).optional(),
-    quantity: z.number().int().min(1).max(200).optional(),
+    quantity: z.number().int().min(1).max(100_000).optional(),
     note: z.string().trim().max(2000).optional(),
     reasonCode: z.string().trim().max(80).optional(),
   })
@@ -179,6 +214,11 @@ export const createAssignmentSchema = z
       });
     }
   });
+
+export const respondQuantityAssignmentSchema = z.object({
+  accept: z.boolean(),
+  note: z.string().trim().max(2000).optional(),
+});
 
 export const listTransfersQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -209,6 +249,14 @@ export const returnReasonSchema = z.enum([
   "excess_stock",
   "other",
 ]);
+
+export const createQuantityReturnSchema = z.object({
+  typeKey: z.string().trim().min(2).max(60),
+  quantity: z.number().int().min(1).max(100_000),
+  reasonCode: returnReasonSchema,
+  note: z.string().trim().max(2000).optional(),
+  submit: z.boolean().optional(),
+});
 
 export const createReturnSchema = z.object({
   unitIds: z.array(z.string().trim().min(1)).min(1).max(200),
@@ -336,6 +384,9 @@ export const disposeFaultySchema = z.object({
 });
 
 export type CreateAssignmentInput = z.infer<typeof createAssignmentSchema>;
+export type RespondQuantityAssignmentInput = z.infer<
+  typeof respondQuantityAssignmentSchema
+>;
 export type ListTransfersQuery = z.infer<typeof listTransfersQuerySchema>;
 export type RespondTransferInput = z.infer<typeof respondTransferSchema>;
 export type DeclineTransferInput = z.infer<typeof declineTransferSchema>;
@@ -344,6 +395,9 @@ export type ListAvailableUnitsQuery = z.infer<
 >;
 export type CustomerReturnInput = z.infer<typeof customerReturnSchema>;
 export type CreateReturnInput = z.infer<typeof createReturnSchema>;
+export type CreateQuantityReturnInput = z.infer<
+  typeof createQuantityReturnSchema
+>;
 export type UpdateReturnInput = z.infer<typeof updateReturnSchema>;
 export type ConfirmReturnInput = z.infer<typeof confirmReturnSchema>;
 export type CommentReturnInput = z.infer<typeof commentReturnSchema>;

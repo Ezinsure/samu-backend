@@ -215,6 +215,12 @@ enum CoaEvidenceType {
   auto_irembo
 }
 
+/// How a device type is tracked in inventory.
+enum StockTrackingMode {
+  serialized
+  quantity
+}
+
 /// Lifecycle of a serialised SIM / router unit.
 enum StockUnitStatus {
   in_warehouse
@@ -225,6 +231,17 @@ enum StockUnitStatus {
   damaged
   returned_to_supplier
   written_off
+}
+
+/// Quantity-pool ledger kinds (SIMs tracked without serial until sale).
+enum StockBalanceMovementKind {
+  intake
+  assign
+  accept
+  decline
+  return
+  sell
+  adjust
 }
 
 /// Append-only stock movement kinds.
@@ -319,6 +336,8 @@ model User {
   coaPerformanceEntries CoaPerformanceEntry[] @relation("CoaPerformanceCoa")
   stockUnitsHeld        StockUnit[]           @relation("StockUnitHolder")
   stockMovementsActed   StockMovement[]       @relation("StockMovementActor")
+  stockBalancesHeld     StockBalance[]        @relation("StockBalanceHolder")
+  stockBalanceMovementsActed StockBalanceMovement[] @relation("StockBalanceMovementActor")
   stockTransfersFrom    StockTransfer[]       @relation("StockTransferFrom")
   stockTransfersTo      StockTransfer[]       @relation("StockTransferTo")
   stockTransfersCreated StockTransfer[]       @relation("StockTransferCreator")
@@ -1093,6 +1112,8 @@ model StockItemType {
   description String?
   /// Optional JSON schema for type-specific attributes on units.
   attributesSchema Json? @map("attributes_schema")
+  /// serialized = per-serial units; quantity = pool balances until sale.
+  trackingMode StockTrackingMode @default(serialized) @map("tracking_mode")
   /// Warn when warehouse count for this type falls to or below this value.
   lowStockThreshold Int @default(10) @map("low_stock_threshold")
   enabled     Boolean  @default(true)
@@ -1100,11 +1121,16 @@ model StockItemType {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  units  StockUnit[]
-  batches StockIntakeBatch[]
+  units      StockUnit[]
+  batches    StockIntakeBatch[]
+  batchLines StockIntakeBatchLine[]
+  balances   StockBalance[]
+  balanceMovements StockBalanceMovement[]
+  transfers  StockTransfer[]
 
   @@index([enabled])
   @@index([sortOrder])
+  @@index([trackingMode])
   @@map("stock_item_types")
 }
 
@@ -1126,11 +1152,80 @@ model StockIntakeBatch {
   type      StockItemType? @relation(fields: [typeId], references: [id], onDelete: SetNull)
   createdBy User           @relation("StockIntakeBatchCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
   units     StockUnit[]
+  lines     StockIntakeBatchLine[]
 
   @@index([receivedAt])
   @@index([typeId])
   @@index([createdByUserId])
   @@map("stock_intake_batches")
+}
+
+/// Quantity (or serial-count) lines on an intake batch — supports SIM pool intake.
+model StockIntakeBatchLine {
+  id        String   @id @default(cuid())
+  batchId   String   @map("batch_id")
+  typeId    String   @map("type_id")
+  quantity  Int
+  condition String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  batch StockIntakeBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  type  StockItemType    @relation(fields: [typeId], references: [id], onDelete: Restrict)
+
+  @@index([batchId])
+  @@index([typeId])
+  @@map("stock_intake_batch_lines")
+}
+
+/// On-hand quantity pool for quantity-tracked types (null holder = warehouse).
+model StockBalance {
+  id           String   @id @default(cuid())
+  typeId       String   @map("type_id")
+  holderUserId String?  @map("holder_user_id")
+  /// "warehouse" or user id — unique with typeId (Postgres NULL-safe).
+  scopeKey     String   @map("scope_key")
+  quantity     Int      @default(0)
+  /// Qty reserved on pending quantity assignments (warehouse only).
+  reservedQuantity Int  @default(0) @map("reserved_quantity")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  type   StockItemType @relation(fields: [typeId], references: [id], onDelete: Restrict)
+  holder User?         @relation("StockBalanceHolder", fields: [holderUserId], references: [id], onDelete: Cascade)
+
+  @@unique([typeId, scopeKey])
+  @@index([holderUserId])
+  @@index([typeId])
+  @@map("stock_balances")
+}
+
+/// Append-only ledger for quantity-pool stock moves.
+model StockBalanceMovement {
+  id           String                   @id @default(cuid())
+  typeId       String                   @map("type_id")
+  quantity     Int
+  kind         StockBalanceMovementKind
+  fromHolderId String?                  @map("from_holder_id")
+  toHolderId   String?                  @map("to_holder_id")
+  serialBound String?                  @map("serial_bound")
+  unitId       String?                  @map("unit_id")
+  reasonCode   String?                  @map("reason_code")
+  note         String?
+  refType      String?                  @map("ref_type")
+  refId        String?                  @map("ref_id")
+  actorUserId  String                   @map("actor_user_id")
+  createdAt    DateTime                 @default(now()) @map("created_at")
+
+  type  StockItemType @relation(fields: [typeId], references: [id], onDelete: Restrict)
+  actor User          @relation("StockBalanceMovementActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+  unit  StockUnit?    @relation(fields: [unitId], references: [id], onDelete: SetNull)
+
+  @@index([typeId, createdAt])
+  @@index([kind])
+  @@index([actorUserId])
+  @@index([refType, refId])
+  @@index([unitId])
+  @@map("stock_balance_movements")
 }
 
 /// One physical SIM or router identified by serial number.
@@ -1154,6 +1249,7 @@ model StockUnit {
   intakeBatch StockIntakeBatch?    @relation(fields: [intakeBatchId], references: [id], onDelete: SetNull)
   movements   StockMovement[]
   transferItems StockTransferItem[]
+  balanceBindings StockBalanceMovement[]
 
   @@unique([typeId, serial])
   @@index([status])
@@ -1196,6 +1292,9 @@ model StockTransfer {
   /// Null means warehouse / company for assignments.
   fromUserId         String?             @map("from_user_id")
   toUserId           String              @map("to_user_id")
+  /// Quantity-tracked assignment/return (no per-serial items).
+  typeId             String?             @map("type_id")
+  quantity           Int?
   revision           Int                 @default(1)
   /// Set when both sides have confirmed the same revision (return flows).
   confirmedRevision  Int?                @map("confirmed_revision")
@@ -1213,6 +1312,7 @@ model StockTransfer {
   fromUser  User?                @relation("StockTransferFrom", fields: [fromUserId], references: [id], onDelete: SetNull)
   toUser    User                 @relation("StockTransferTo", fields: [toUserId], references: [id], onDelete: Restrict)
   createdBy User                 @relation("StockTransferCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  type      StockItemType?       @relation(fields: [typeId], references: [id], onDelete: SetNull)
   items     StockTransferItem[]
   events    StockTransferEvent[]
 
@@ -1220,6 +1320,7 @@ model StockTransfer {
   @@index([toUserId, status])
   @@index([fromUserId])
   @@index([createdByUserId])
+  @@index([typeId])
   @@map("stock_transfers")
 }
 

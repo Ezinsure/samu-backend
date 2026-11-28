@@ -167,7 +167,7 @@ export const COA_METRIC_VARIANT_CATALOG: CoaMetricVariantSeed[] = [
         type: "text",
         required: true,
         mapsTo: "simNumber",
-        placeholder: "Select from your in-hand SIM stock",
+        placeholder: "Enter the SIM serial sold to this customer",
       },
     ],
   },
