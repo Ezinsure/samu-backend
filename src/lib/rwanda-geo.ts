@@ -1,40 +1,16 @@
-/** Authoritative Rwanda province → district map for cascading selects. */
-export const RWANDA_PROVINCES: Record<string, string[]> = {
-  "Kigali City": ["Gasabo", "Kicukiro", "Nyarugenge"],
-  "Eastern Province": [
-    "Bugesera",
-    "Gatsibo",
-    "Kayonza",
-    "Kirehe",
-    "Ngoma",
-    "Nyagatare",
-    "Rwamagana",
-  ],
-  "Northern Province": ["Burera", "Gakenke", "Gicumbi", "Musanze", "Rulindo"],
-  "Southern Province": [
-    "Gisagara",
-    "Huye",
-    "Kamonyi",
-    "Muhanga",
-    "Nyamagabe",
-    "Nyanza",
-    "Nyaruguru",
-    "Ruhango",
-  ],
-  "Western Province": [
-    "Karongi",
-    "Ngororero",
-    "Nyabihu",
-    "Nyamasheke",
-    "Rubavu",
-    "Rusizi",
-    "Rutsiro",
-  ],
-};
+/**
+ * @deprecated Import from `./rwanda-locations.js` instead.
+ * Kept as a thin re-export so existing imports keep working during migration.
+ */
+export {
+  listProvinces,
+  listDistricts,
+  provincesDistrictsMap,
+  rwandaGeoPayload,
+  RWANDA_LOCATIONS,
+} from "./rwanda-locations.js";
 
-export function rwandaGeoPayload() {
-  return {
-    provinces: Object.keys(RWANDA_PROVINCES).sort(),
-    districtsByProvince: RWANDA_PROVINCES,
-  };
-}
+import { provincesDistrictsMap } from "./rwanda-locations.js";
+
+/** @deprecated Use provincesDistrictsMap() / listProvinces(). */
+export const RWANDA_PROVINCES = provincesDistrictsMap();
